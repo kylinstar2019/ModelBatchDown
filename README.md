@@ -2,8 +2,7 @@
 
 **模型批量下载器** — 支持 HuggingFace 和 ModelScope 双平台的离线模型批量下载工具
 
-[![CI](https://github.com/eeyzs1/ModelBatchDown/actions/workflows/ci.yml/badge.svg)](https://github.com/eeyzs1/ModelBatchDown/actions/workflows/ci.yml)
-[![Release](https://github.com/eeyzs1/ModelBatchDown/actions/workflows/release.yml/badge.svg)](https://github.com/eeyzs1/ModelBatchDown/releases)
+![模型批量下载器](ModelBatchDown.png "软件界面")
 
 厌倦了手动管理模型下载？ModelBatchDown 帮你一键批量下载 AI 模型，支持 GGUF 量化版本选择和标准模型关键文件筛选。
 
@@ -15,18 +14,18 @@
 
 ### 🔗 双平台支持
 
-| 平台 | 镜像加速 | 说明 |
-|------|---------|------|
-| HuggingFace | hf-mirror.com（国内推荐） | 支持所有 HuggingFace 模型 |
-| ModelScope | modelscope.cn | 支持所有魔塔模型 |
+| 平台          | 镜像加速                                      | 说明                  |
+| ----------- | ----------------------------------------- | ------------------- |
+| HuggingFace | hf-mirror.com | 支持所有 HuggingFace 模型 |
+| ModelScope  | modelscope.cn                             | 支持所有魔塔模型            |
 
 ### 📦 模型类型支持
 
-| 模型类型 | 下载模式 | 说明 |
-|---------|---------|------|
+| 模型类型      | 下载模式   | 说明                                          |
+| --------- | ------ | ------------------------------------------- |
 | GGUF 量化模型 | 量化版本选择 | 自动获取可用 GGUF 文件列表，用户可选择特定版本（Q3_K_M ~ Q8_0 等） |
-| 标准模型 | 全部下载 | 下载模型所有文件 |
-| 标准模型 | 主要下载 | 仅下载关键运行文件（config.json、safetensors 等） |
+| 标准模型      | 全部下载   | 下载模型所有文件                                    |
+| 标准模型      | 主要下载   | 仅下载关键运行文件（config.json、safetensors 等）        |
 
 ### 🎯 核心功能
 
@@ -45,24 +44,18 @@
 
 ---
 
-## 🖼️ 截图
-
-> 主界面 | 添加任务 | 下载日志
-
----
-
 ## 🚀 快速开始
 
 ### 下载安装
 
 前往 [Releases](https://github.com/eeyzs1/ModelBatchDown/releases) 页面下载最新版本：
 
-| 文件 | 说明 |
-|------|------|
-| `ModelBatchDown-1.0.0-setup.exe` | Windows 安装版（推荐） |
-| `ModelBatchDown-1.0.0.zip` | Windows 便携版（解压即用） |
-| `ModelBatchDown-1.0.0.dmg` | macOS 安装版 |
-| `ModelBatchDown-1.0.0.app.zip` | macOS 便携版 |
+| 文件                               | 说明                |
+| -------------------------------- | ----------------- |
+| `ModelBatchDown-1.0.0-setup.exe` | Windows 安装版（推荐）   |
+| `ModelBatchDown-1.0.0.zip`       | Windows 便携版（解压即用） |
+| `ModelBatchDown-1.0.0.dmg`       | macOS 安装版         |
+| `ModelBatchDown-1.0.0.app.zip`   | macOS 便携版         |
 
 ### 快速使用
 
@@ -137,14 +130,14 @@ ModelBatchDown/
 
 ## 🛠️ 技术栈
 
-| 类别 | 技术 |
-|------|------|
-| 桌面框架 | Tauri 2.x |
-| 前端 | HTML + CSS + JavaScript |
-| 后端 | Rust |
-| 下载引擎 | Python (huggingface_hub + modelscope) |
-| HTTP 客户端 | ureq |
-| 编译工具 | PyInstaller |
+| 类别       | 技术                                    |
+| -------- | ------------------------------------- |
+| 桌面框架     | Tauri 2.x                             |
+| 前端       | HTML + CSS + JavaScript               |
+| 后端       | Rust                                  |
+| 下载引擎     | Python (huggingface_hub + modelscope) |
+| HTTP 客户端 | ureq                                  |
+| 编译工具     | PyInstaller                           |
 
 ---
 
