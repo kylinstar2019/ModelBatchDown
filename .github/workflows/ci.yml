@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check formatting
+        run: rustfmt --check src-tauri/src/**/*.rs
+
+      - name: Check clippy
+        uses: rust-lang/rust-clippy-action@v1
+        with:
+          args: --allow deadcoded --allow unused --allow linting
+          filter: --path-filter
+
+  build:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config
+
+      - name: Build Tauri app
+        run: |
+          cd src-tauri
+          npm install
+          npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-build
+          path: src-tauri/src-tauri/target/release/modelbatchdown.exe

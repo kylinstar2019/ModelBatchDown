@@ -1,0 +1,44 @@
+# Build outputs
+dist/
+dist_nuitka/
+build/
+*.egg-info/
+
+# Compiled executables
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Rust build artifacts
+src-tauri/target/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.PYTHONSTUFF
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large model files
+*.gguf
+*.safetensors
+*.bin
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+env:
+  VERSION: ${{ github.event.inputs.version || github.event.release.tag_name }}
+
+jobs:
+  release-tauri:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x64
+            artifact: ModelBatchDown-${{ env.VERSION }}-linux-x64.tar.gz
+          - os: windows-latest
+            target: x64
+            artifact: ModelBatchDown-${{ env.VERSION }}-setup.exe
+          - os: macos-latest
+            target: universal
+            artifact: ModelBatchDown-${{ env.VERSION }}.dmg
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Tauri CLI
+        run: |
+          cargo install tauri-cli --version 2.0.0
+          tauri build --version
+
+      - name: Build Tauri app
+        run: |
+          cd src-tauri
+          npm install
+          npm run tauri build --release
+
+      - name: Package Windows installer
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cd src-tauri/src-tauri/target/release/bundle
+          ls -la nsis/
+          mv nsis/*.exe ${{ matrix.artifact }}
+
+      - name: Package macOS dmg
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          cd src-tauri/src-tauri/target/release/bundle
+          hdiutil create universal.dmg -volname ModelBatchDown -srcfolder ./
+          mv universal.dmg ${{ matrix.artifact }}
+
+      - name: Upload release artifact
+        uses: actions/upload-release-attachment@v1
+        with:
+          release_id: ${{ github.event.release.id }}
+          upload_url: ${{ github.event.upload_url }}
+          asset_path: src-tauri/src-tauri/target/release/bundle/${{ matrix.artifact }}
+          asset_name: ${{ matrix.artifact }}
+          asset_content_type: application/octet-stream
+
+  release-cli:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: win32
+            python: '3.11'
+            artifact: ModelBatchDown-CLI-${{ env.VERSION }}-win.zip
+          - os: macos-latest
+            target: darwin
+            python: '3.11'
+            artifact: ModelBatchDown-CLI-${{ env.VERSION }}-macos.zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Build PyInstaller
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          pip install pyinstaller
+          pyinstaller --onefile --name run_download_cli run_download.py
+          powershell -Command "Compress-Archive -Path run_download_cli.exe -DestinationPath ${{ matrix.artifact }}"
+
+      - name: Build PyInstaller macOS
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          pip install pyinstaller
+          pyinstaller --onefile --name run_download_cli run_download.py
+          tar -czf ${{ matrix.artifact }} run_download_cli
+
+      - name: Upload release artifact
+        uses: actions/upload-release-attachment@v1
+        with:
+          release_id: ${{ github.event.release.id }}
+          upload_url: ${{ github.event.upload_url }}
+          asset_path: ${{ matrix.artifact }}
+          asset_name: ${{ matrix.artifact }}
+          asset_content_type: application/zip
+
+  publish:
+    needs: [release-tauri, release-cli]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-release-attachment@v1
+        with:
+          release_id: ${{ github.event.release.id }}
+          all: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

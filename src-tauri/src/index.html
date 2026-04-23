@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ModelBatchDown - 模型批量下载器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', -apple-system, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .header {
+            text-align: center;
+            padding: 14px 20px 8px;
+        }
+        .header h1 { font-size: 24px; color: #00d4ff; }
+        .header p.subtitle { color: #888; font-size: 13px; margin-top: 2px; }
+        .main-row {
+            display: flex;
+            gap: 16px;
+            padding: 0 20px 16px;
+            height: calc(100vh - 80px);
+        }
+        .left-panel {
+            width: 420px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .right-panel {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .card {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 18px;
+            border: 1px solid #1e3a5f;
+            display: flex;
+            flex-direction: column;
+        }
+        .card-title {
+            font-size: 15px;
+            color: #00d4ff;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+        label { display: block; font-size: 12.5px; color: #aaa; margin-bottom: 5px; }
+        textarea, input, select {
+            width: 100%;
+            background: #0f1929;
+            border: 1px solid #2a4a6a;
+            border-radius: 6px;
+            color: #e0e0e0;
+            padding: 9px 11px;
+            font-size: 13.5px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        textarea:focus, input:focus, select:focus { border-color: #00d4ff; }
+        textarea { resize: none; font-family: Consolas, monospace; }
+        select { cursor: pointer; appearance: auto; }
+        .checkbox-row {
+            display: flex; align-items: center; gap: 7px;
+            margin-top: 7px; font-size: 12.5px; color: #aaa;
+        }
+        .checkbox-row input[type="checkbox"] { width: auto; accent-color: #00d4ff; }
+        .btn-group { display: flex; gap: 10px; margin-top: 14px; }
+        button {
+            flex: 1;
+            padding: 11px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-start {
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            color: #fff;
+        }
+        .btn-start:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+        .btn-stop {
+            background: linear-gradient(135deg, #ff4757, #cc3344);
+            color: #fff;
+        }
+        .btn-stop:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-add {
+            background: linear-gradient(135deg, #2ed573, #1e90ff);
+            color: #fff;
+        }
+        .btn-add:hover { opacity: 0.85; }
+        .btn-clear {
+            background: linear-gradient(135deg, #ff6348, #c0392b);
+            color: #fff;
+        }
+        .btn-clear:hover { opacity: 0.85; }
+        .btn-remove {
+            background: #ff4757;
+            color: #fff;
+            padding: 4px 8px;
+            font-size: 12px;
+            flex: 0 0 auto;
+        }
+        .log-card { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .status-bar {
+            display: flex; justify-content: space-between;
+            align-items: center; padding: 6px 0 8px;
+            font-size: 11.5px; color: #666;
+        }
+        .status-dot {
+            display: inline-block; width: 8px; height: 8px;
+            border-radius: 50%; margin-right: 6px;
+            background: #666;
+        }
+        .status-dot.running { background: #2ed573; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        #log_output {
+            background: #0a0f18;
+            border: 1px solid #1e3a5f;
+            border-radius: 6px;
+            color: #7fdbca;
+            padding: 14px;
+            font-family: Consolas, 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 13px;
+            line-height: 1.75;
+            flex: 1;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .model-list {
+            background: #0a0f18;
+            border: 1px solid #2a4a6a;
+            border-radius: 6px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 12px;
+        }
+        .model-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid #1e3a5f;
+            font-size: 13px;
+        }
+        .model-item:last-child { border-bottom: none; }
+        .model-item .name { flex: 1; color: #7fdbca; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .model-item .quant { color: #888; font-size: 11px; margin-left: 8px; }
+        .model-item .remove-btn {
+            background: #ff4757;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            margin-left: 8px;
+        }
+        .model-item .remove-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .empty-list {
+            color: #666;
+            text-align: center;
+            padding: 30px;
+            font-size: 13px;
+        }
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-overlay.hidden { display: none; }
+        .modal {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            width: 480px;
+            max-width: 90vw;
+            border: 1px solid #2a4a6a;
+        }
+        .modal h3 {
+            color: #00d4ff;
+            margin-bottom: 16px;
+            font-size: 16px;
+        }
+        .modal-row {
+            margin-bottom: 12px;
+        }
+        .modal-row label {
+            margin-bottom: 6px;
+        }
+        .modal-btns {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .modal-btns button {
+            flex: 1;
+        }
+        .btn-parse {
+            background: #2a4a6a;
+            color: #ccc;
+        }
+        .btn-parse:hover { background: #3a5a7a; }
+        .btn-confirm {
+            background: linear-gradient(135deg, #2ed573, #1e90ff);
+            color: #fff;
+        }
+        .btn-cancel {
+            background: #444;
+            color: #ccc;
+        }
+        .file-select-area {
+            margin-top: 12px;
+            display: none;
+        }
+        .file-select-area.visible { display: block; }
+        .download-option {
+            margin-top: 12px;
+            display: none;
+        }
+        .download-option.visible { display: block; }
+        .download-option .option-title {
+            font-size: 12.5px;
+            color: #aaa;
+            margin-bottom: 8px;
+        }
+        .download-option .option-btns {
+            display: flex;
+            gap: 10px;
+        }
+        .download-option .option-btn {
+            flex: 1;
+            padding: 10px;
+            background: #2a4a6a;
+            color: #ccc;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .download-option .option-btn:hover {
+            background: #3a5a7a;
+        }
+        .download-option .option-btn.selected {
+            border-color: #00d4ff;
+            background: #1e4a6a;
+            color: #fff;
+        }
+        .path-input-wrapper { display: flex; gap: 7px; align-items: stretch; }
+        .path-input-wrapper input { flex: 1; }
+        .path-input-wrapper button {
+            flex: 0 0 auto; padding: 0 14px; font-size: 12.5px;
+            background: #2a4a6a; color: #ccc; border-radius: 6px;
+        }
+        .path-input-wrapper button:hover { background: #3a5a7a; }
+        .item-count {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        .parse-status {
+            margin-top: 10px;
+            padding: 10px;
+            background: #0f1929;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #7fdbca;
+            display: none;
+        }
+        .parse-status.visible { display: block; }
+        .parse-status.error { color: #ff6348; }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>🚀 ModelBatchDown</h1>
+    <p class="subtitle">支持 HF / 魔塔双平台 | GGUF量化选择 | 实时日志 | 自动关机</p>
+</div>
+
+<div class="main-row">
+    <div class="left-panel">
+        <div class="card" style="flex:1">
+            <div class="card-title">📥 模型下载配置</div>
+
+            <div class="item-count">已添加 <span id="item_count">0</span> 个下载任务</div>
+
+            <div class="model-list" id="model_list">
+                <div class="empty-list">暂无下载任务，点击下方「+ 添加模型」按钮添加</div>
+            </div>
+
+<div style="display:flex;gap:10px;margin-bottom:12px">
+                <button class="btn-add" id="btn_add_task" onclick="openModal()" style="flex:1">+ 添加模型</button>
+                <button class="btn-clear" id="btn_clear_list" onclick="clearAllTasks()" style="flex:1">🗑️ 清空列表</button>
+            </div>
+
+            <label>保存根目录</label>
+            <div class="path-input-wrapper">
+                <input id="save_root" type="text" placeholder="F:\AI_Tools\temp\models">
+                <button onclick="chooseFolder()" id="btn_choose_folder">📁 选择</button>
+            </div>
+
+            <div class="checkbox-row" style="margin-top:14px">
+                <input type="checkbox" id="auto_shutdown">
+                <label style="margin:0" for="auto_shutdown">下载完成后自动关机</label>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn-start" id="btn_start" onclick="startDownload()">▶️ 开始下载</button>
+                <button class="btn-stop" id="btn_stop" onclick="stopDownload()" disabled>⏹️ 停止</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="right-panel">
+        <div class="card log-card">
+            <div class="status-bar">
+                <span><span class="status-dot" id="status_dot"></span><span id="status_text">就绪</span></span>
+                <span id="log_count"></span>
+            </div>
+            <div id="log_output">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay hidden" id="modal_overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+        <h3>➕ 添加下载任务</h3>
+
+        <div class="modal-row">
+            <label>模型链接</label>
+            <input type="text" id="modal_url" placeholder="https://huggingface.co/xxx/model-name&#10;或 https://modelscope.cn/xxx/model-name">
+        </div>
+
+        <button class="btn-parse" onclick="parseUrl()" style="width:100%">🔍 解析地址</button>
+
+        <div class="parse-status" id="parse_status"></div>
+
+        <div class="file-select-area" id="file_select_area">
+            <div class="modal-row">
+                <label>选择量化版本 / 文件</label>
+                <select id="modal_quant">
+                </select>
+            </div>
+        </div>
+
+        <div class="download-option" id="download_option">
+            <div class="option-title">选择下载模式：</div>
+            <div class="option-btns">
+                <button class="option-btn selected" onclick="selectMode('all')" id="mode_all">
+                    📥 全部下载<br><small style="opacity:0.7">下载所有文件</small>
+                </button>
+                <button class="option-btn" onclick="selectMode('main')" id="mode_main">
+                    ⭐ 主要下载<br><small style="opacity:0.7">仅关键运行文件</small>
+                </button>
+            </div>
+        </div>
+
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closeModal()">取消</button>
+            <button class="btn-confirm" onclick="addToList()" id="btn_add_confirm" disabled>✓ 添加</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+
+let downloadTasks = [];
+let currentFiles = [];
+let selectedQuant = '';
+let selectedMode = 'all';
+let parsedUrl = '';
+let isGgufModel = false;
+let currentTaskIndex = 0;
+let currentSavePath = '';
+
+async function loadTasks() {
+    try {
+        const tasks = await invoke('load_tasks');
+        downloadTasks = tasks || [];
+        renderTaskList();
+    } catch(e) {
+        console.error('加载任务失败:', e);
+        downloadTasks = [];
+        renderTaskList();
+    }
+}
+
+async function saveTasks() {
+    try {
+        await invoke('save_tasks', { tasks: downloadTasks });
+    } catch(e) {
+        console.error('保存任务失败:', e);
+    }
+}
+
+async function clearAllTasks() {
+    if (downloadTasks.length === 0) return;
+    if (!confirm('确定要清空所有下载任务吗？')) return;
+    downloadTasks = [];
+    await saveTasks();
+    renderTaskList();
+}
+
+function renderTaskList() {
+    const list = document.getElementById('model_list');
+    const count = document.getElementById('item_count');
+    count.textContent = downloadTasks.length;
+
+    if (downloadTasks.length === 0) {
+        list.innerHTML = '<div class="empty-list">暂无下载任务，点击下方「+ 添加模型」按钮添加</div>';
+        return;
+    }
+
+    const isRunning = document.getElementById('btn_start').disabled;
+    list.innerHTML = downloadTasks.map((task, i) => {
+        const modeText = task.mode === 'main' ? '主要' : (task.quant ? task.quant : '全部');
+        const disabledAttr = isRunning ? 'disabled' : '';
+        return `<div class="model-item">
+            <span class="name">${task.url}</span>
+            <span class="quant">${modeText}</span>
+            <button class="remove-btn" onclick="removeTask(${i})" ${disabledAttr}>删除</button>
+        </div>`;
+    }).join('');
+}
+
+async function removeTask(index) {
+    downloadTasks.splice(index, 1);
+    await saveTasks();
+    renderTaskList();
+}
+
+function openModal() {
+    document.getElementById('modal_overlay').classList.remove('hidden');
+    document.getElementById('modal_url').value = '';
+    document.getElementById('file_select_area').classList.remove('visible');
+    document.getElementById('download_option').classList.remove('visible');
+    document.getElementById('parse_status').classList.remove('visible');
+    document.getElementById('btn_add_confirm').disabled = true;
+    currentFiles = [];
+    selectedQuant = '';
+    selectedMode = 'all';
+    parsedUrl = '';
+    isGgufModel = false;
+    updateModeButtons();
+}
+
+function closeModal() {
+    document.getElementById('modal_overlay').classList.add('hidden');
+}
+
+function updateModeButtons() {
+    document.getElementById('mode_all').classList.toggle('selected', selectedMode === 'all');
+    document.getElementById('mode_main').classList.toggle('selected', selectedMode === 'main');
+}
+
+function selectMode(mode) {
+    selectedMode = mode;
+    updateModeButtons();
+}
+
+async function parseUrl() {
+    const url = document.getElementById('modal_url').value.trim();
+    if (!url) return alert('请输入模型链接');
+
+    parsedUrl = url;
+    const fileArea = document.getElementById('file_select_area');
+    const optArea = document.getElementById('download_option');
+    const statusDiv = document.getElementById('parse_status');
+    const quantSelect = document.getElementById('modal_quant');
+
+    fileArea.classList.remove('visible');
+    optArea.classList.remove('visible');
+    statusDiv.classList.remove('visible');
+    selectedQuant = '';
+    currentFiles = [];
+
+    statusDiv.textContent = '正在解析...';
+    statusDiv.classList.remove('error');
+    statusDiv.classList.add('visible');
+
+    try {
+        const result = await invoke('get_model_files', { url });
+        currentFiles = result.files || [];
+        isGgufModel = result.is_gguf;
+
+        if (isGgufModel) {
+            const ggufFiles = currentFiles.filter(f => f.toLowerCase().endsWith('.gguf'));
+            if (ggufFiles.length === 0) {
+                statusDiv.textContent = '❌ 未找到 GGUF 文件';
+                statusDiv.classList.add('error');
+            } else {
+                statusDiv.textContent = `✅ 找到 ${ggufFiles.length} 个 GGUF 文件`;
+                quantSelect.innerHTML = ggufFiles.map(f => `<option value="${f}">${f}</option>`).join('');
+                selectedQuant = ggufFiles[0];
+                fileArea.classList.add('visible');
+                document.getElementById('btn_add_confirm').disabled = false;
+            }
+        } else {
+            statusDiv.textContent = `✅ 标准模型，共 ${currentFiles.length} 个文件`;
+            selectedMode = 'all';
+            updateModeButtons();
+            optArea.classList.add('visible');
+            document.getElementById('btn_add_confirm').disabled = false;
+        }
+    } catch(e) {
+        statusDiv.textContent = '❌ 解析失败: ' + e;
+        statusDiv.classList.add('error');
+    }
+}
+
+async function addToList() {
+    if (!parsedUrl) return alert('请先解析地址');
+
+    const task = {
+        url: parsedUrl,
+        quant: selectedQuant || null,
+        mode: isGgufModel ? null : selectedMode
+    };
+
+    downloadTasks.push(task);
+    await saveTasks();
+    renderTaskList();
+    closeModal();
+}
+
+let logBuffer = '';
+let logLines = 0;
+
+function appendLog(text) {
+    logBuffer += text + '\n';
+    logLines++;
+    const el = document.getElementById('log_output');
+    el.textContent = logBuffer;
+    el.scrollTop = el.scrollHeight;
+    document.getElementById('log_count').textContent = logLines + ' 条消息';
+}
+
+function setStatus(running, text) {
+    const dot = document.getElementById('status_dot');
+    dot.className = 'status-dot' + (running ? ' running' : '');
+    document.getElementById('status_text').textContent = text || (running ? '下载中...' : '就绪');
+    document.getElementById('btn_start').disabled = running;
+    document.getElementById('btn_stop').disabled = !running;
+    document.getElementById('btn_add_task').disabled = running;
+    document.getElementById('btn_clear_list').disabled = running;
+    document.getElementById('btn_choose_folder').disabled = running;
+    document.getElementById('save_root').disabled = running;
+    document.getElementById('auto_shutdown').disabled = running;
+    renderTaskList();
+}
+
+async function chooseFolder() {
+    try {
+        const selected = await window.__TAURI__.dialog.open({ directory: true, multiple: false });
+        if (selected) document.getElementById('save_root').value = selected;
+    } catch(e) { console.error(e); }
+}
+
+async function startDownload() {
+    if (downloadTasks.length === 0) return alert('请先添加下载任务');
+    const saveRoot = document.getElementById('save_root').value.trim();
+    if (!saveRoot) return alert('请输入或选择保存目录');
+    const autoShutdown = document.getElementById('auto_shutdown').checked;
+
+    const urls = downloadTasks.map(t => {
+        if (t.quant) return `${t.url}::QUANT:${t.quant}`;
+        if (t.mode === 'main') return `${t.url}::MODE:main`;
+        return t.url;
+    }).join('\n');
+
+    currentTaskIndex = 0;
+    currentSavePath = saveRoot;
+
+    setStatus(true, '正在启动...');
+    logBuffer = '';
+    logLines = 0;
+    document.getElementById('log_output').innerHTML = '';
+    document.getElementById('log_count').textContent = '';
+
+    setupListeners();
+
+    try {
+        const result = await invoke('start_download', {
+            urls, saveRoot, ggufQuant: '', autoShutdown
+        });
+        appendLog(result);
+    } catch(e) {
+        appendLog('❌ 错误: ' + e);
+        setStatus(false);
+    }
+}
+
+async function stopDownload() {
+    if (!confirm('确定要停止下载吗？')) return;
+    
+    const saveRoot = document.getElementById('save_root').value.trim();
+    if (saveRoot && confirm('是否删除未下载完成的模型文件夹？')) {
+        try {
+            const result = await invoke('stop_download_with_cleanup', { saveRoot });
+            appendLog(result);
+        } catch(e) {
+            appendLog('❌ 错误: ' + e);
+        }
+    } else {
+        try {
+            const result = await invoke('stop_download');
+            appendLog(result);
+        } catch(e) {
+            appendLog('❌ 错误: ' + e);
+        }
+    }
+    cleanupListeners();
+    setTimeout(() => setStatus(false), 500);
+}
+
+let unlistenLog = null;
+let unlistenDone = null;
+
+function setupListeners() {
+    if (unlistenLog) return;
+    unlistenLog = listen('download-log', (event) => {
+        appendLog(event.payload);
+    });
+    unlistenDone = listen('download-finished', async () => {
+        appendLog('\n✅ 所有下载任务完成！');
+        downloadTasks = [];
+        await saveTasks();
+        renderTaskList();
+        cleanupListeners();
+        setTimeout(() => setStatus(false), 500);
+    });
+}
+
+function cleanupListeners() {
+    if (unlistenLog) { unlistenLog.then(fn => fn()); unlistenLog = null; }
+    if (unlistenDone) { unlistenDone.then(fn => fn()); unlistenDone = null; }
+}
+
+loadTasks();
+</script>
+</body>
+</html>
