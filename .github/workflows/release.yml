@@ -7,12 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.0.0)'
+        description: 'Release version (e.g. v1.0.0)'
         required: true
-        default: '1.0.0'
+        default: 'v1.0.0'
 
 env:
   VERSION: ${{ github.event.inputs.version || github.event.release.tag_name }}
+  VERSION_NAME: ${{ github.event.inputs.version || github.event.release.tag_name }}
 
 jobs:
   release-tauri:
@@ -22,18 +23,18 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x64
-            artifact: ModelBatchDown-${{ env.VERSION }}-linux-x64.tar.gz
+            artifact: ModelBatchDown-${{ env.VERSION_NAME }}-linux-x64.tar.gz
           - os: windows-latest
             target: x64
-            artifact: ModelBatchDown-${{ env.VERSION }}-setup.exe
+            artifact: ModelBatchDown-${{ env.VERSION_NAME }}-setup.exe
           - os: macos-latest
             target: universal
-            artifact: ModelBatchDown-${{ env.VERSION }}.dmg
+            artifact: ModelBatchDown-${{ env.VERSION_NAME }}.dmg
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Node.js
@@ -41,16 +42,13 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Tauri CLI
-        run: |
-          cargo install tauri-cli --version 2.0.0
-          tauri build --version
-
       - name: Build Tauri app
         run: |
           cd src-tauri
           npm install
           npm run tauri build --release
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ''
 
       - name: Package Windows installer
         if: matrix.os == 'windows-latest'
