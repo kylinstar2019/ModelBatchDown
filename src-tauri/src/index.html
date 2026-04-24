@@ -285,12 +285,55 @@
         }
         .parse-status.visible { display: block; }
         .parse-status.error { color: #ff6348; }
+
+        .qr-login-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .qr-login-modal.show { display: flex; }
+        .qr-login-box {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            border: 1px solid #1e3a5f;
+            min-width: 280px;
+        }
+        .qr-login-box h3 { color: #00d4ff; margin-bottom: 16px; }
+        .qr-code-img {
+            width: 200px;
+            height: 200px;
+            background: #fff;
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+        }
+        .qr-code-img img { max-width: 100%; max-height: 100%; }
+        .qr-status { color: #aaa; font-size: 14px; margin-bottom: 16px; }
+        .qr-login-box button {
+            background: #ff4757;
+            color: #fff;
+            border: none;
+            padding: 8px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .qr-login-box button:hover { opacity: 0.85; }
     </style>
 </head>
 <body>
 <div class="header">
     <h1>🚀 ModelBatchDown</h1>
     <p class="subtitle">支持 HF / 魔塔双平台 | GGUF量化选择 | 实时日志 | 自动关机</p>
+    <div id="loginStatusBar" style="margin-top:8px;font-size:13px;"></div>
 </div>
 
 <div class="main-row">
@@ -391,6 +434,48 @@ let parsedUrl = '';
 let isGgufModel = false;
 let currentTaskIndex = 0;
 let currentSavePath = '';
+const USER_INFO_KEY = 'user_info';
+let isLoggedIn = false;
+let currentUser = null;
+
+async function checkLoginStatus() {
+    try {
+        const loggedIn = await invoke('check_login_status');
+        isLoggedIn = loggedIn;
+        if (loggedIn) {
+            currentUser = await invoke('get_user_info');
+        }
+        updateLoginStatusBar();
+    } catch(e) {
+        console.error('[App] 检查登录状态失败:', e);
+        isLoggedIn = false;
+        updateLoginStatusBar();
+    }
+}
+
+function updateLoginStatusBar() {
+    const statusBar = document.getElementById('loginStatusBar');
+    if (!statusBar) return;
+    
+    if (isLoggedIn && currentUser) {
+        const nickname = currentUser.nickname || currentUser.name || currentUser.username || '用户';
+        statusBar.innerHTML = `<span style="color:#51cf66;">✅ 已登录: ${nickname}</span> | <a href="#" onclick="handleLogout();return false;" style="color:#ff6b6b;">退出登录</a>`;
+    } else {
+        statusBar.innerHTML = `<span style="color:#ff6b6b;">❌ 未登录</span> | <a href="#" onclick="handleLogin();return false;" style="color:#00d4ff;">微信登录</a>`;
+    }
+}
+
+async function handleLogout() {
+    try {
+        await invoke('logout');
+        isLoggedIn = false;
+        currentUser = null;
+        updateLoginStatusBar();
+        appendLog('[INFO] 已退出登录');
+    } catch(e) {
+        appendLog('❌ 退出登录失败: ' + e);
+    }
+}
 
 async function loadTasks() {
     try {
@@ -576,6 +661,11 @@ async function chooseFolder() {
 }
 
 async function startDownload() {
+    if (!isLoggedIn) {
+        appendLog('❌ 请先登录后再使用下载功能');
+        await handleLogin();
+        return;
+    }
     if (downloadTasks.length === 0) return alert('请先添加下载任务');
     const saveRoot = document.getElementById('save_root').value.trim();
     if (!saveRoot) return alert('请输入或选择保存目录');
@@ -648,14 +738,134 @@ function setupListeners() {
         cleanupListeners();
         setTimeout(() => setStatus(false), 500);
     });
+    unlistenLoginSuccess = listen('login-success', (event) => {
+        console.log('[App] 收到login-success事件:', event.payload);
+        isLoggedIn = true;
+        currentUser = event.payload;
+        updateLoginStatusBar();
+        const nickname = currentUser?.nickname || currentUser?.name || currentUser?.username || '用户';
+        appendLog('✅ 微信登录成功: ' + nickname);
+    });
 }
+
+let unlistenLoginSuccess = null;
+let qrPollingTimer = null;
+let currentSceneStr = null;
+let qrLoginModal = null;
+let qrCodeImg = null;
+let qrStatus = null;
 
 function cleanupListeners() {
     if (unlistenLog) { unlistenLog.then(fn => fn()); unlistenLog = null; }
     if (unlistenDone) { unlistenDone.then(fn => fn()); unlistenDone = null; }
+    if (unlistenLoginSuccess) { unlistenLoginSuccess.then(fn => fn()); unlistenLoginSuccess = null; }
+    if (qrPollingTimer) { clearInterval(qrPollingTimer); qrPollingTimer = null; }
+}
+
+async function handleLogin() {
+    qrLoginModal = document.getElementById('qrLoginModal');
+    qrCodeImg = document.getElementById('qrCodeImg');
+    qrStatus = document.getElementById('qrStatus');
+
+    qrLoginModal.classList.add('show');
+    qrCodeImg.innerHTML = '<span style="color:#666;">加载中...</span>';
+    qrStatus.textContent = '正在获取二维码...';
+
+    try {
+        const result = await invoke('create_wechat_qrcode');
+        appendLog('[QR登录] 创建二维码结果: success=' + result.success);
+        if (result.success && result.url) {
+            currentSceneStr = result.scene_str;
+            appendLog('[QR登录] scene_str=' + currentSceneStr);
+            const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(result.url)}`;
+            qrCodeImg.innerHTML = `<img src="${qrApiUrl}" alt="QR Code">`;
+            qrStatus.textContent = '请使用微信扫码登录';
+
+            qrStatus.textContent = '等待扫码...';
+            appendLog('[QR登录] 启动轮询，2秒间隔');
+            qrPollingTimer = setInterval(checkQrLoginStatus, 2000);
+        } else {
+            qrCodeImg.innerHTML = '<span style="color:#ff4757;">获取二维码失败</span>';
+            qrStatus.textContent = result.errcode || '未知错误';
+            appendLog('[QR登录] 获取二维码失败: ' + (result.errcode || result.message || '未知错误'));
+        }
+    } catch(e) {
+        qrCodeImg.innerHTML = '<span style="color:#ff4757;">请求失败</span>';
+        qrStatus.textContent = e.toString();
+        appendLog('[QR登录] 创建二维码异常: ' + e);
+    }
+}
+
+async function checkQrLoginStatus() {
+    if (!currentSceneStr) return;
+
+    try {
+        const result = await invoke('check_wechat_login', { sceneStr: currentSceneStr });
+        console.log('[QR登录] 轮询响应:', result);
+        appendLog('[QR登录] 轮询响应: code=' + result.code + ', msg=' + result.msg);
+
+        if (result.code === 0) {
+            clearInterval(qrPollingTimer);
+            qrPollingTimer = null;
+            qrStatus.textContent = '登录成功!';
+            appendLog('[QR登录] 登录成功，准备保存用户信息');
+
+            const userInfo = result.userInfo;
+            if (userInfo) {
+                try {
+                    await invoke('save_user_info', { userInfo: userInfo });
+                    appendLog('[QR登录] 用户信息已保存');
+                } catch(e) {
+                    console.error('保存用户信息失败:', e);
+                    appendLog('[QR登录] 保存用户信息失败: ' + e);
+                }
+            }
+
+            setTimeout(() => {
+                closeQrLogin();
+                isLoggedIn = true;
+                currentUser = userInfo;
+                updateLoginStatusBar();
+                const nickname = userInfo?.nickname || userInfo?.name || userInfo?.username || '用户';
+                appendLog('✅ 微信登录成功: ' + nickname);
+            }, 500);
+        } else if (result.code === 302) {
+            qrStatus.textContent = '等待扫码...';
+        } else {
+            qrStatus.textContent = result.msg || '登录失败';
+            appendLog('[QR登录] 登录失败: ' + result.msg);
+        }
+    } catch(e) {
+        console.error('检查登录状态失败:', e);
+        appendLog('[QR登录] 检查登录状态异常: ' + e);
+    }
+}
+
+function closeQrLogin() {
+    if (qrLoginModal) {
+        qrLoginModal.classList.remove('show');
+    }
+    if (qrPollingTimer) {
+        clearInterval(qrPollingTimer);
+        qrPollingTimer = null;
+    }
+    currentSceneStr = null;
 }
 
 loadTasks();
+checkLoginStatus();
 </script>
+
+<div id="qrLoginModal" class="qr-login-modal">
+    <div class="qr-login-box">
+        <h3>📱 微信扫码登录</h3>
+        <div class="qr-code-img" id="qrCodeImg">
+            <span style="color:#666;">加载中...</span>
+        </div>
+        <div class="qr-status" id="qrStatus">请使用微信扫码登录</div>
+        <button onclick="closeQrLogin()">取消</button>
+    </div>
+</div>
+
 </body>
 </html>
