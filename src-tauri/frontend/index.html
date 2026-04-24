@@ -67,9 +67,10 @@ button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 15
 </div>
 
 <div class="btn-row">
-<button class="btn-start" onclick="startDownload()" id="startBtn">▶️ 开始批量下载</button>
+<button class="btn-start" onclick="handleStartDownload()" id="startBtn">▶️ 开始批量下载</button>
 <button class="btn-stop" onclick="stopDownload()" id="stopBtn" disabled>⏹️ 停止下载</button>
 </div>
+<div id="loginStatus" class="login-status" style="margin-top:12px;text-align:center;font-size:12px;color:#888;"></div>
 </div>
 
 <div class="panel">
@@ -97,6 +98,8 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 let isDownloading = false;
+let isLoggedIn = false;
+let currentUser = null;
 
 listen('download-log', (event) => {
     addLog(event.payload.msg, 'info');
@@ -117,6 +120,73 @@ listen('download-finished', () => {
     updateButtons();
     addLog('✅ 所有下载任务完成', 'success');
 });
+
+listen('login-success', (event) => {
+    console.log('[App] 登录成功:', event.payload);
+    isLoggedIn = true;
+    currentUser = event.payload;
+    updateLoginStatus();
+    addLog('✅ 微信登录成功: ' + (currentUser.nickname || currentUser.name || '用户'), 'success');
+});
+
+async function checkLoginStatus() {
+    try {
+        const loggedIn = await invoke('check_login_status');
+        isLoggedIn = loggedIn;
+        if (loggedIn) {
+            currentUser = await invoke('get_user_info');
+        }
+        updateLoginStatus();
+    } catch (err) {
+        console.error('[App] 检查登录状态失败:', err);
+        isLoggedIn = false;
+        updateLoginStatus();
+    }
+}
+
+function updateLoginStatus() {
+    const statusEl = document.getElementById('loginStatus');
+    if (!statusEl) return;
+    
+    if (isLoggedIn && currentUser) {
+        const nickname = currentUser.nickname || currentUser.name || currentUser.username || '用户';
+        statusEl.innerHTML = `✅ 已登录: ${nickname} | <a href="#" onclick="handleLogout()" style="color:#ff6b6b;">退出登录</a>`;
+        statusEl.style.color = '#51cf66';
+    } else {
+        statusEl.innerHTML = `❌ 未登录 | <a href="#" onclick="handleLogin()" style="color:#00d4ff;">微信登录</a>`;
+        statusEl.style.color = '#888';
+    }
+}
+
+async function handleLogin() {
+    try {
+        addLog('[INFO] 正在打开微信登录窗口...', 'info');
+        await invoke('open_wechat_login_window');
+    } catch (err) {
+        addLog('❌ 打开登录窗口失败: ' + err, 'error');
+    }
+}
+
+async function handleLogout() {
+    try {
+        await invoke('logout');
+        isLoggedIn = false;
+        currentUser = null;
+        updateLoginStatus();
+        addLog('[INFO] 已退出登录', 'info');
+    } catch (err) {
+        addLog('❌ 退出登录失败: ' + err, 'error');
+    }
+}
+
+async function handleStartDownload() {
+    if (!isLoggedIn) {
+        addLog('❌ 请先登录后再使用下载功能', 'error');
+        await handleLogin();
+        return;
+    }
+    await startDownload();
+}
 
 function addLog(msg, type='info') {
     const area = document.getElementById('logArea');
@@ -176,6 +246,10 @@ function updateButtons() {
     document.getElementById('startBtn').disabled = isDownloading;
     document.getElementById('stopBtn').disabled = !isDownloading;
 }
+
+window.addEventListener('DOMContentLoaded', async () => {
+    await checkLoginStatus();
+});
 </script>
 </body>
 </html>
