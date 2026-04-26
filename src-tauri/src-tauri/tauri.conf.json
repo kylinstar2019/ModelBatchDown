@@ -1,1 +1,38 @@
-{"$schema": "https://schema.tauri.app/config/2", "productName": "ModelBatchDown", "version": "1.0.0", "identifier": "com.modelbatchdown.app", "build": {"frontendDist": "../src"}, "app": {"withGlobalTauri": true, "windows": [{"title": "ModelBatchDown - 模型批量下载器", "width": 1000, "height": 720, "resizable": true, "fullscreen": false, "center": true}], "security": {"csp": null}}, "bundle": {"active": true, "targets": ["msi", "nsis"], "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"], "windows": {"nsis": {"installMode": "currentUser"}}}}
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ModelBatchDown",
+  "version": "1.0.0",
+  "identifier": "com.modelbatchdown.app",
+  "build": {
+    "frontendDist": "../src",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "ModelBatchDown - 模型批量下载器",
+        "width": 1000,
+        "height": 720,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "resources": ["../src/**/*"]
+  }
+}

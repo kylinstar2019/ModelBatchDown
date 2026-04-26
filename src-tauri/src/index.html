@@ -140,21 +140,142 @@
         .model-list {
             background: #0a0f18;
             border: 1px solid #2a4a6a;
-            border-radius: 6px;
-            max-height: 200px;
+            border-radius: 8px;
+            flex: 1;
             overflow-y: auto;
             margin-bottom: 12px;
+            padding: 8px;
         }
         .model-item {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 10px;
+            border: 1px solid #1e3a5f;
+            transition: all 0.2s;
+        }
+        .model-item:hover {
+            border-color: #2a5a7a;
+            transform: translateY(-1px);
+        }
+        .model-item:last-child { margin-bottom: 0; }
+        .model-item-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .model-item-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        .model-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .model-item-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #e0e0e0;
+            margin-bottom: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .model-item-url {
+            font-size: 11px;
+            color: #666;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .model-item-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .model-item-btn {
+            background: #2a4a6a;
+            color: #ccc;
+            border: none;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .model-item-btn:hover {
+            background: #3a5a7a;
+        }
+        .model-item-btn.remove:hover {
+            background: #ff4757;
+            color: #fff;
+        }
+        .model-item-status {
             display: flex;
             align-items: center;
-            padding: 8px 12px;
-            border-bottom: 1px solid #1e3a5f;
-            font-size: 13px;
+            gap: 8px;
+            margin-bottom: 8px;
         }
-        .model-item:last-child { border-bottom: none; }
-        .model-item .name { flex: 1; color: #7fdbca; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .model-item .quant { color: #888; font-size: 11px; margin-left: 8px; }
+        .model-item-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #2a4a6a;
+            color: #aaa;
+        }
+        .model-item-badge.downloading {
+            background: #00d4ff22;
+            color: #00d4ff;
+        }
+        .model-item-badge.paused {
+            background: #ffa50222;
+            color: #ffa502;
+        }
+        .model-item-badge.error {
+            background: #ff475722;
+            color: #ff4757;
+        }
+        .model-item-badge.success {
+            background: #2ed57322;
+            color: #2ed573;
+        }
+        .model-item-progress {
+            height: 6px;
+            background: #0f1929;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .model-item-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #00d4ff, #0099cc);
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+        .model-item-progress-bar.paused {
+            background: linear-gradient(90deg, #ffa502, #ff8800);
+        }
+        .model-item-progress-bar.error {
+            background: linear-gradient(90deg, #ff4757, #cc3344);
+        }
+        .model-item-stats {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            color: #888;
+        }
+        .model-item-size {
+            color: #aaa;
+        }
+        .model-item-speed {
+            color: #00d4ff;
+            font-weight: 600;
+        }
+        .model-item-eta {
+            color: #666;
+        }
         .model-item .remove-btn {
             background: #ff4757;
             color: #fff;
@@ -437,6 +558,7 @@ let currentSavePath = '';
 const USER_INFO_KEY = 'user_info';
 let isLoggedIn = false;
 let currentUser = null;
+let currentTotalSize = 0; // 保存当前解析的模型总大小
 
 async function checkLoginStatus() {
     try {
@@ -505,6 +627,26 @@ async function clearAllTasks() {
     renderTaskList();
 }
 
+function updateTaskProgress(data) {
+    // data 包含：file_index, total_files, file_name, downloaded, total, speed, percent
+    const taskIndex = data.file_index || 0;
+    
+    // 更新当前下载任务的进度（每个模型独立显示）
+    if (downloadTasks.length > 0) {
+        // 更新第一个正在下载的任务
+        const task = downloadTasks[0];
+        
+        // 直接使用后端传来的累计进度
+        task.downloaded = data.downloaded || 0;
+        task.total = data.total || task.total || 0;
+        task.speed = data.speed || '0 B/s';
+        task.progress = data.percent || 0;
+        task.status = 'downloading';
+        
+        renderTaskList();
+    }
+}
+
 function renderTaskList() {
     const list = document.getElementById('model_list');
     const count = document.getElementById('item_count');
@@ -517,14 +659,88 @@ function renderTaskList() {
 
     const isRunning = document.getElementById('btn_start').disabled;
     list.innerHTML = downloadTasks.map((task, i) => {
-        const modeText = task.mode === 'main' ? '主要' : (task.quant ? task.quant : '全部');
+        const modeText = task.mode === 'main' ? '⭐ 主要' : (task.quant ? '🔹 ' + task.quant : '📥 全部');
         const disabledAttr = isRunning ? 'disabled' : '';
-        return `<div class="model-item">
-            <span class="name">${task.url}</span>
-            <span class="quant">${modeText}</span>
-            <button class="remove-btn" onclick="removeTask(${i})" ${disabledAttr}>删除</button>
+        const statusClass = task.status || 'waiting';
+        const progress = task.progress || 0;
+        const speed = task.speed || '0 B/s';
+        const downloadedSize = task.downloaded || 0;
+        const totalSize = task.total || 0;
+        
+        let badgeClass = '';
+        let badgeText = '等待中';
+        if (statusClass === 'downloading') { badgeClass = 'downloading'; badgeText = '下载中'; }
+        else if (statusClass === 'paused') { badgeClass = 'paused'; badgeText = '已暂停'; }
+        else if (statusClass === 'error') { badgeClass = 'error'; badgeText = '错误'; }
+        else if (statusClass === 'success') { badgeClass = 'success'; badgeText = '完成'; }
+        
+        const progressBarClass = statusClass === 'paused' ? ' paused' : (statusClass === 'error' ? ' error' : '');
+        
+        // 格式化已下载和总大小
+        const downloadedText = formatBytes(downloadedSize);
+        const totalText = formatBytes(totalSize);
+        const percentText = progress.toFixed(2) + '%';
+        
+        return `<div class="model-item" data-index="${i}">
+            <div class="model-item-header">
+                <div class="model-item-icon">📦</div>
+                <div class="model-item-info">
+                    <div class="model-item-name">${escapeHtml(task.name || getTaskName(task.url))}</div>
+                    <div class="model-item-url">${escapeHtml(task.url)}</div>
+                </div>
+                <div class="model-item-actions">
+                    <button class="model-item-btn" ${disabledAttr} onclick="pauseTask(${i})">⏸️</button>
+                    <button class="model-item-btn" ${disabledAttr} onclick="retryTask(${i})">🔄</button>
+                    <button class="model-item-btn remove" ${disabledAttr} onclick="removeTask(${i})">✕</button>
+                </div>
+            </div>
+            <div class="model-item-status">
+                <span class="model-item-badge ${badgeClass}">${badgeText}</span>
+                <span class="model-item-badge">${modeText}</span>
+            </div>
+            <div class="model-item-progress">
+                <div class="model-item-progress-bar${progressBarClass}" style="width: ${progress}%"></div>
+            </div>
+            <div class="model-item-stats">
+                <span class="model-item-size">${downloadedText} / ${totalText}</span>
+                <span class="model-item-speed">${speed}</span>
+                <span class="model-item-eta">${percentText}</span>
+            </div>
         </div>`;
     }).join('');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function getTaskName(url) {
+    try {
+        const parts = url.replace(/\/$/, '').split('/');
+        return parts.slice(-2).join('/') || url;
+    } catch(e) {
+        return url;
+    }
+}
+
+function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+async function pauseTask(index) {
+    // TODO: 实现暂停功能
+    appendLog('暂停任务 ' + index);
+}
+
+async function retryTask(index) {
+    // TODO: 实现重试功能
+    appendLog('重试任务 ' + index);
 }
 
 async function removeTask(index) {
@@ -545,6 +761,7 @@ function openModal() {
     selectedMode = 'all';
     parsedUrl = '';
     isGgufModel = false;
+    currentTotalSize = 0;
     updateModeButtons();
 }
 
@@ -586,6 +803,7 @@ async function parseUrl() {
         const result = await invoke('get_model_files', { url });
         currentFiles = result.files || [];
         isGgufModel = result.is_gguf;
+        currentTotalSize = result.total_size || 0;
 
         if (isGgufModel) {
             const ggufFiles = currentFiles.filter(f => f.toLowerCase().endsWith('.gguf'));
@@ -593,14 +811,14 @@ async function parseUrl() {
                 statusDiv.textContent = '❌ 未找到 GGUF 文件';
                 statusDiv.classList.add('error');
             } else {
-                statusDiv.textContent = `✅ 找到 ${ggufFiles.length} 个 GGUF 文件`;
+                statusDiv.textContent = `✅ 找到 ${ggufFiles.length} 个 GGUF 文件，总大小：${formatBytes(currentTotalSize)}`;
                 quantSelect.innerHTML = ggufFiles.map(f => `<option value="${f}">${f}</option>`).join('');
                 selectedQuant = ggufFiles[0];
                 fileArea.classList.add('visible');
                 document.getElementById('btn_add_confirm').disabled = false;
             }
         } else {
-            statusDiv.textContent = `✅ 标准模型，共 ${currentFiles.length} 个文件`;
+            statusDiv.textContent = `✅ 标准模型，共 ${currentFiles.length} 个文件，总大小：${formatBytes(currentTotalSize)}`;
             selectedMode = 'all';
             updateModeButtons();
             optArea.classList.add('visible');
@@ -618,7 +836,12 @@ async function addToList() {
     const task = {
         url: parsedUrl,
         quant: selectedQuant || null,
-        mode: isGgufModel ? null : selectedMode
+        mode: isGgufModel ? null : selectedMode,
+        total: currentTotalSize,
+        downloaded: 0,
+        speed: '0 B/s',
+        progress: 0,
+        status: 'waiting'
     };
 
     downloadTasks.push(task);
@@ -724,11 +947,15 @@ async function stopDownload() {
 
 let unlistenLog = null;
 let unlistenDone = null;
+let unlistenProgress = null;
 
 function setupListeners() {
     if (unlistenLog) return;
     unlistenLog = listen('download-log', (event) => {
         appendLog(event.payload);
+    });
+    unlistenProgress = listen('download-progress', (event) => {
+        updateTaskProgress(event.payload);
     });
     unlistenDone = listen('download-finished', async () => {
         appendLog('\n✅ 所有下载任务完成！');
@@ -757,6 +984,7 @@ let qrStatus = null;
 
 function cleanupListeners() {
     if (unlistenLog) { unlistenLog.then(fn => fn()); unlistenLog = null; }
+    if (unlistenProgress) { unlistenProgress.then(fn => fn()); unlistenProgress = null; }
     if (unlistenDone) { unlistenDone.then(fn => fn()); unlistenDone = null; }
     if (unlistenLoginSuccess) { unlistenLoginSuccess.then(fn => fn()); unlistenLoginSuccess = null; }
     if (qrPollingTimer) { clearInterval(qrPollingTimer); qrPollingTimer = null; }
