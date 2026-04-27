@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "identifier": "com.modelbatchdown.app",
   "build": {
-    "frontendDist": "../src",
+    "frontendDist": "app://index.html",
     "beforeDevCommand": "",
     "beforeBuildCommand": ""
   },
@@ -12,6 +12,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "ModelBatchDown - 模型批量下载器",
         "width": 1000,
         "height": 720,
@@ -26,13 +27,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
+    "targets": ["nsis"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "windows": {
       "nsis": {
         "installMode": "currentUser"
       }
-    },
-    "resources": ["../src/**/*"]
+    }
   }
 }

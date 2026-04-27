@@ -558,7 +558,6 @@ let currentSavePath = '';
 const USER_INFO_KEY = 'user_info';
 let isLoggedIn = false;
 let currentUser = null;
-let currentTotalSize = 0; // 保存当前解析的模型总大小
 
 async function checkLoginStatus() {
     try {
@@ -761,7 +760,6 @@ function openModal() {
     selectedMode = 'all';
     parsedUrl = '';
     isGgufModel = false;
-    currentTotalSize = 0;
     updateModeButtons();
 }
 
@@ -803,7 +801,6 @@ async function parseUrl() {
         const result = await invoke('get_model_files', { url });
         currentFiles = result.files || [];
         isGgufModel = result.is_gguf;
-        currentTotalSize = result.total_size || 0;
 
         if (isGgufModel) {
             const ggufFiles = currentFiles.filter(f => f.toLowerCase().endsWith('.gguf'));
@@ -811,14 +808,14 @@ async function parseUrl() {
                 statusDiv.textContent = '❌ 未找到 GGUF 文件';
                 statusDiv.classList.add('error');
             } else {
-                statusDiv.textContent = `✅ 找到 ${ggufFiles.length} 个 GGUF 文件，总大小：${formatBytes(currentTotalSize)}`;
+                statusDiv.textContent = `✅ 找到 ${ggufFiles.length} 个 GGUF 文件`;
                 quantSelect.innerHTML = ggufFiles.map(f => `<option value="${f}">${f}</option>`).join('');
                 selectedQuant = ggufFiles[0];
                 fileArea.classList.add('visible');
                 document.getElementById('btn_add_confirm').disabled = false;
             }
         } else {
-            statusDiv.textContent = `✅ 标准模型，共 ${currentFiles.length} 个文件，总大小：${formatBytes(currentTotalSize)}`;
+            statusDiv.textContent = `✅ 标准模型，共 ${currentFiles.length} 个文件`;
             selectedMode = 'all';
             updateModeButtons();
             optArea.classList.add('visible');
@@ -836,12 +833,7 @@ async function addToList() {
     const task = {
         url: parsedUrl,
         quant: selectedQuant || null,
-        mode: isGgufModel ? null : selectedMode,
-        total: currentTotalSize,
-        downloaded: 0,
-        speed: '0 B/s',
-        progress: 0,
-        status: 'waiting'
+        mode: isGgufModel ? null : selectedMode
     };
 
     downloadTasks.push(task);
