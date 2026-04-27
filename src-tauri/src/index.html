@@ -718,6 +718,17 @@ function escapeHtml(text) {
 function getTaskName(url) {
     try {
         const parts = url.replace(/\/$/, '').split('/');
+        if (url.includes('modelscope.cn')) {
+            const idx = parts.indexOf('models');
+            if (idx >= 0 && parts[idx + 1] && parts[idx + 2]) {
+                return parts[idx + 1] + '/' + parts[idx + 2];
+            }
+        } else if (url.includes('huggingface.co')) {
+            const idx = parts.indexOf('huggingface.co');
+            if (idx >= 0 && parts[idx + 1] && parts[idx + 2]) {
+                return parts[idx + 1] + '/' + parts[idx + 2];
+            }
+        }
         return parts.slice(-2).join('/') || url;
     } catch(e) {
         return url;
