@@ -1,13 +1,18 @@
 use futures::StreamExt;
+use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tauri::{AppHandle, Emitter, State};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt, BufWriter};
 
-use crate::model_info::{extract_model_id, get_hf_files_with_size, get_ms_files_with_size, FileInfo};
+use crate::login::AppState;
+use crate::model_info::{extract_model_id, extract_model_name, get_hf_files_with_size, get_ms_files_with_size, FileInfo};
 use crate::network_speed::format_speed;
+
+const MAX_CONNECTIONS_PER_FILE: usize = 64;
+const MAX_CONCURRENT_DOWNLOADS: usize = 2;
 
 pub struct GlobalDownloadTracker {
     total_downloaded: AtomicU64,
@@ -73,26 +78,30 @@ impl GlobalDownloadTracker {
 
 pub async fn estimate_bandwidth(test_url: &str) -> u64 {
     let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15))
+        .pool_max_idle_per_host(10)
+        .tcp_nodelay(true)
         .build() {
         Ok(c) => c,
-        Err(_) => return 5_000_000,
+        Err(_) => return 8_000_000,
     };
 
     let start = Instant::now();
     let mut total_bytes = 0u64;
+    let test_size = 8_000_000;
 
     let test_urls = if test_url.contains("modelscope.cn") {
         vec![
             test_url.to_string(),
             format!("{}/resolve/master/.gitkeep", test_url),
+            format!("{}/resolve/master/config.json", test_url),
         ]
     } else {
         vec![test_url.to_string()]
     };
 
     for url in test_urls {
-        if total_bytes >= 5_000_000 {
+        if total_bytes >= test_size {
             break;
         }
 
@@ -100,7 +109,7 @@ pub async fn estimate_bandwidth(test_url: &str) -> u64 {
 
         let Ok(response) = client.get(&encoded_url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .header("Range", "bytes=0-5242879")
+            .header("Range", format!("bytes=0-{}", test_size - 1))
             .send()
             .await else {
             continue;
@@ -114,7 +123,7 @@ pub async fn estimate_bandwidth(test_url: &str) -> u64 {
         while let Some(chunk_result) = stream.next().await {
             if let Ok(chunk) = chunk_result {
                 total_bytes += chunk.len() as u64;
-                if total_bytes >= 5_000_000 {
+                if total_bytes >= test_size {
                     break;
                 }
             }
@@ -125,7 +134,7 @@ pub async fn estimate_bandwidth(test_url: &str) -> u64 {
     if elapsed > 0.0 && total_bytes > 0 {
         (total_bytes as f64 / elapsed) as u64
     } else {
-        5_000_000
+        8_000_000
     }
 }
 
@@ -151,12 +160,12 @@ pub async fn download_model_rust(
     mode: &str,
     app_handle: AppHandle,
 ) -> Result<String, String> {
-    let url_lower = url.to_lowercase();
-    let is_gguf = url_lower.contains("gguf");
     let model_id = extract_model_id(url).ok_or("无法解析模型 ID")?;
 
-    let allow_patterns = if is_gguf {
-        gguf_quant.map(|q| vec![format!("*{}*.gguf", q)])
+    let allow_patterns = if let Some(ref quant) = gguf_quant {
+        let pattern = quant.clone();
+        let _ = app_handle.emit("download-log", format!("[DEBUG] GGUF quant: {}, pattern: {}", quant, pattern));
+        Some(vec![pattern])
     } else if mode == "main" {
         Some(vec![
             "config.json".to_string(),
@@ -190,21 +199,33 @@ pub async fn huggingface_download(
 ) -> Result<String, String> {
     let _ = app_handle.emit("download-log", format!("[HF] 开始下载模型：{}", model_id));
 
-    let incomplete_marker = std::path::PathBuf::from(save_path).join(".incomplete");
+    let save_dir = std::path::PathBuf::from(save_path);
+    if let Err(e) = std::fs::create_dir_all(&save_dir) {
+        let _ = app_handle.emit("download-log", format!("[警告] 创建目录失败：{}", e));
+    }
+
+    let incomplete_marker = save_dir.join(".incomplete");
     if let Err(e) = std::fs::File::create(&incomplete_marker) {
         let _ = app_handle.emit("download-log", format!("[警告] 创建未完成标记失败：{}", e));
     }
 
+    let _ = app_handle.emit("download-log", format!("[HF] 开始获取文件列表..."));
+
     let files = get_hf_files_with_size(model_id)?;
+    let _ = app_handle.emit("download-log", format!("[HF] 获取文件列表完成，共 {} 个文件", files.len()));
+
     let files_to_download = filter_files_with_size(&files, &allow_patterns);
+    let _ = app_handle.emit("download-log", format!("[HF] 过滤后 {} 个文件需要下载", files_to_download.len()));
 
     if files_to_download.is_empty() {
+        let _ = app_handle.emit("download-log", format!("[HF] 原始文件列表: {:?}", files.iter().take(10).map(|f| &f.path).collect::<Vec<_>>()));
         let _ = std::fs::remove_file(&incomplete_marker);
         return Err("没有找到需要下载的文件".to_string());
     }
 
     let endpoint = std::env::var("HF_ENDPOINT").unwrap_or_else(|_| "https://hf-mirror.com".to_string());
     let base_url = format!("{}/{}/resolve/main", endpoint, model_id);
+    let _ = app_handle.emit("download-log", format!("[HF] 下载基础URL: {}", base_url));
 
     let total_size_from_api: u64 = files_to_download.iter().map(|f| f.size).sum();
     let _ = app_handle.emit("download-log", format!("[HF] API返回文件大小：{}", format_bytes(total_size_from_api)));
@@ -240,7 +261,12 @@ pub async fn modelscope_download(
 ) -> Result<String, String> {
     let _ = app_handle.emit("download-log", format!("[MS] 开始下载模型：{}", model_id));
 
-    let incomplete_marker = std::path::PathBuf::from(save_path).join(".incomplete");
+    let save_dir = std::path::PathBuf::from(save_path);
+    if let Err(e) = std::fs::create_dir_all(&save_dir) {
+        let _ = app_handle.emit("download-log", format!("[警告] 创建目录失败：{}", e));
+    }
+
+    let incomplete_marker = save_dir.join(".incomplete");
     if let Err(e) = std::fs::File::create(&incomplete_marker) {
         let _ = app_handle.emit("download-log", format!("[警告] 创建未完成标记失败：{}", e));
     }
@@ -263,13 +289,13 @@ pub async fn modelscope_download(
     let bandwidth = estimate_bandwidth(&test_url).await;
     let target_speed = (bandwidth as f64 * 1.6) as u64;
     let connections_per_file = if bandwidth > 0 {
-        ((target_speed / 200_000) as usize).max(10)
+        (((bandwidth as f64 * 0.8) / 200_000.0) as usize).max(5).min(MAX_CONNECTIONS_PER_FILE)
     } else {
-        10
+        5
     };
 
-    let _ = app_handle.emit("download-log", format!("[测速] 带宽: {}，目标速度: {}/s，每文件 {} 连接",
-        format_speed(bandwidth), format_speed(target_speed), connections_per_file));
+    let _ = app_handle.emit("download-log", format!("[测速] 带宽: {}，目标速度: {}/s，每文件 {} 连接 (上限{})",
+        format_speed(bandwidth), format_speed(target_speed), connections_per_file, MAX_CONNECTIONS_PER_FILE));
 
     let tracker = Arc::new(GlobalDownloadTracker::new());
     let tracker_clone = tracker.clone();
@@ -320,6 +346,9 @@ pub async fn modelscope_download(
         }
     });
 
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
+    let _ = app_handle.emit("download-log", format!("[下载] 同时下载文件数上限: {}", MAX_CONCURRENT_DOWNLOADS));
+
     let mut tasks = Vec::new();
     for (i, file_info) in files_to_download.into_iter().enumerate() {
         let url = format!("https://modelscope.cn/{}/resolve/master/{}", model_id, file_info.path);
@@ -328,8 +357,10 @@ pub async fn modelscope_download(
         let tracker_clone = tracker.clone();
         let file_size = file_info.size;
         let conn_count = connections_per_file;
+        let sem_clone = semaphore.clone();
 
         let task = tokio::spawn(async move {
+            let _permit = sem_clone.acquire().await.unwrap();
             if let Some(parent) = target_path.parent() {
                 let _ = tokio::fs::create_dir_all(parent).await;
             }
@@ -385,6 +416,133 @@ pub async fn modelscope_download(
     }
 }
 
+#[tauri::command]
+pub fn stop_download(state: State<'_, AppState>) -> String {
+    if let Ok(mut child_guard) = state.download_child.lock() {
+        if let Some(ref mut child) = *child_guard {
+            let _ = child.kill();
+            let _ = child.wait();
+            *child_guard = None;
+            return "下载已停止".to_string();
+        }
+    }
+    "没有正在运行的下载".to_string()
+}
+
+#[tauri::command]
+pub fn stop_download_with_cleanup(save_root: String, state: State<'_, AppState>) -> String {
+    if let Ok(mut child_guard) = state.download_child.lock() {
+        if let Some(ref mut child) = *child_guard {
+            let _ = child.kill();
+            let _ = child.wait();
+            *child_guard = None;
+        }
+    }
+
+    let root_path = std::path::PathBuf::from(&save_root);
+    if !root_path.exists() {
+        return "下载已停止，目录不存在".to_string();
+    }
+
+    let mut deleted_count = 0;
+    let mut deleted_dirs: Vec<String> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&root_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let incomplete_marker = path.join(".incomplete");
+                if incomplete_marker.exists() {
+                    if let Err(e) = std::fs::remove_dir_all(&path) {
+                        let _ = std::io::stdout().write_all(format!("[清理] 删除失败 {}: {}\n", path.display(), e).as_bytes());
+                    } else {
+                        deleted_count += 1;
+                        deleted_dirs.push(path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default());
+                    }
+                }
+            }
+        }
+    }
+
+    if deleted_count > 0 {
+        format!("下载已停止，已清理 {} 个未完成的模型文件夹: {}", deleted_count, deleted_dirs.join(", "))
+    } else {
+        "下载已停止，未发现未完成的模型文件夹".to_string()
+    }
+}
+
+#[tauri::command]
+pub async fn start_download(
+    app: tauri::AppHandle,
+    urls: String,
+    save_root: String,
+    _gguf_quant: String,
+    auto_shutdown: bool,
+) -> Result<String, String> {
+    let _ = app.emit("download-log", format!("[启动] 开始处理下载任务..."));
+
+    let url_lines: Vec<&str> = urls.lines().collect();
+    let total_tasks = url_lines.len();
+    let _ = app.emit("download-log", format!("[启动] 共 {} 个任务", total_tasks));
+
+    let mut success_count = 0;
+    let mut fail_count = 0;
+
+    for (i, line) in url_lines.iter().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let _ = app.emit("download-log", format!("[任务] {}/{} 处理中...", i + 1, total_tasks));
+
+        let (url, quant, mode) = if let Some(pos) = line.find("::QUANT:") {
+            let url = line[..pos].to_string();
+            let quant = line[pos + 8..].to_string();
+            (url, Some(quant), None)
+        } else if let Some(pos) = line.find("::MODE:") {
+            let url = line[..pos].to_string();
+            let mode = line[pos + 7..].to_string();
+            (url, None, Some(mode))
+        } else {
+            (line.to_string(), None, Some("all".to_string()))
+        };
+
+        let model_name = extract_model_name(&url);
+        let task_save_path = std::path::PathBuf::from(&save_root).join(&model_name);
+
+        let result = download_model_rust(
+            &url,
+            task_save_path.to_str().unwrap_or(&save_root),
+            quant.clone(),
+            mode.as_deref().unwrap_or("all"),
+            app.clone(),
+        ).await;
+
+        match result {
+            Ok(msg) => {
+                let _ = app.emit("download-log", format!("[完成] {} - {}", model_name, msg));
+                success_count += 1;
+            }
+            Err(e) => {
+                let _ = app.emit("download-log", format!("[失败] {} - {}", model_name, e));
+                fail_count += 1;
+            }
+        }
+    }
+
+    let _ = app.emit("download-log", format!("[全部完成] 成功 {} 个，失败 {} 个", success_count, fail_count));
+    let _ = app.emit("download-finished", "");
+
+    if auto_shutdown {
+        let _ = app.emit("download-log", "[关机] 下载完成，准备关机...");
+    }
+
+    Ok(format!("下载完成：成功 {} 个，失败 {} 个", success_count, fail_count))
+}
+
 pub async fn get_file_size(url: &str) -> Result<u64, String> {
     let client = reqwest::Client::new();
     let response = client.head(url)
@@ -409,14 +567,25 @@ pub fn filter_files_with_size(files: &[FileInfo], patterns: &Option<Vec<String>>
             files.iter()
                 .filter(|f| {
                     patterns.iter().any(|p| {
-                        if p.starts_with('*') && p.ends_with('*') {
+                        let p = p.as_str();
+                        if p.ends_with(".gguf") && !p.contains('*') {
+                            f.path.as_str() == p
+                        } else if p.ends_with(".gguf") {
+                            let before_gguf = &p[..p.len() - 5];
+                            if let Some(star_pos) = before_gguf.rfind('*') {
+                                let after_star = &before_gguf[star_pos + 1..];
+                                f.path.contains(after_star) && f.path.ends_with(".gguf")
+                            } else {
+                                f.path.contains(before_gguf) && f.path.ends_with(".gguf")
+                            }
+                        } else if p.starts_with('*') && p.ends_with('*') {
                             f.path.contains(&p[1..p.len()-1])
                         } else if p.starts_with('*') {
                             f.path.ends_with(&p[1..])
                         } else if p.ends_with('*') {
                             f.path.starts_with(&p[..p.len()-1])
                         } else {
-                            f.path.as_str() == p.as_str()
+                            f.path.as_str() == p
                         }
                     })
                 })
@@ -664,16 +833,23 @@ pub async fn download_single_file_with_tracker(
         0
     };
 
-    let mut file = tokio::fs::OpenOptions::new()
+    let file = tokio::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .open(save_path)
         .await
         .map_err(|e| format!("创建文件失败：{}", e))?;
 
-    file.set_len(file_size).await.map_err(|e| format!("设置文件大小失败：{}", e))?;
+    let mut buffered_file = BufWriter::new(file);
 
-    let client = reqwest::Client::new();
+    buffered_file.get_mut().set_len(file_size).await.map_err(|e| format!("设置文件大小失败：{}", e))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .pool_max_idle_per_host(20)
+        .tcp_nodelay(true)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
 
     let _ = app_handle.emit("download-log", format!("[URL] {}", url));
 
@@ -711,14 +887,16 @@ pub async fn download_single_file_with_tracker(
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(|e| format!("读取数据失败：{}", e))?;
         let len = chunk.len();
-        file.seek(std::io::SeekFrom::Start(start_pos as u64 + total_bytes as u64))
+        buffered_file.seek(std::io::SeekFrom::Start(start_pos as u64 + total_bytes as u64))
             .await
             .map_err(|e| format!("定位失败：{}", e))?;
-        file.write_all(&chunk).await.map_err(|e| format!("写入文件失败：{}", e))?;
+        buffered_file.write_all(&chunk).await.map_err(|e| format!("写入文件失败：{}", e))?;
         total_bytes += len;
 
         tracker.add_downloaded(len as u64);
     }
+
+    buffered_file.flush().await.map_err(|e| format!("刷新文件失败：{}", e))?;
 
     let _ = app_handle.emit("download-log", format!(
         "[文件完成] {}/{} - {}",
@@ -726,6 +904,56 @@ pub async fn download_single_file_with_tracker(
         total_files,
         save_path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
     ));
+
+    Ok(())
+}
+
+async fn download_segment_single(
+    encoded_url: &str,
+    target_path: &std::path::PathBuf,
+    start_byte: u64,
+    end_byte: u64,
+    tracker: &Arc<GlobalDownloadTracker>,
+) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .pool_max_idle_per_host(10)
+        .tcp_nodelay(true)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let response = client.get(encoded_url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .header("Range", format!("bytes={}-{}", start_byte, end_byte - 1))
+        .send()
+        .await
+        .map_err(|e| format!("分段请求失败：{}", e))?;
+
+    if !response.status().is_success() && response.status().as_u16() != 206 {
+        return Err(format!("HTTP 错误：{}", response.status()));
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut segment_pos = start_byte;
+
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| format!("读取数据失败：{}", e))?;
+        let chunk_len = chunk.len() as u64;
+
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(target_path)
+            .await
+            .map_err(|e| format!("打开文件失败：{}", e))?;
+
+        file.seek(std::io::SeekFrom::Start(segment_pos)).await
+            .map_err(|e| format!("定位失败：{}", e))?;
+        file.write_all(&chunk).await
+            .map_err(|e| format!("写入数据失败：{}", e))?;
+
+        segment_pos += chunk_len;
+        tracker.add_downloaded(chunk_len);
+    }
 
     Ok(())
 }
@@ -767,7 +995,9 @@ pub async fn download_file_with_segments(
     file.set_len(file_size).await.map_err(|e| format!("设置文件大小失败：{}", e))?;
     drop(file);
 
-    let segment_size = (file_size + segment_count as u64 - 1) / segment_count as u64;
+    let min_segment_size = 10 * 1024 * 1024;
+    let calculated_segment_size = (file_size + segment_count as u64 - 1) / segment_count as u64;
+    let segment_size = calculated_segment_size.max(min_segment_size);
 
     let mut handles = Vec::new();
 
@@ -789,47 +1019,29 @@ pub async fn download_file_with_segments(
             .unwrap_or_default();
 
         let handle = tokio::spawn(async move {
-            let client = reqwest::Client::new();
+            let retry_times = 3;
+            let mut retry = 0;
 
-            let response = client.get(&encoded_url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .header("Range", format!("bytes={}-{}", start_byte, end_byte - 1))
-                .send()
-                .await
-                .map_err(|e| format!("分段请求失败：{}", e))?;
-
-            if !response.status().is_success() && response.status().as_u16() != 206 {
-                return Err(format!("HTTP 错误：{}", response.status()));
+            while retry < retry_times {
+                match download_segment_single(&encoded_url, &target_path, start_byte, end_byte, &tracker_clone).await {
+                    Ok(_) => {
+                        let _ = app_handle_clone.emit("download-log", format!(
+                            "[分段完成] {}/{} 分段 {}/{}",
+                            file_index + 1, total_files, seg_idx + 1, segment_count
+                        ));
+                        return Ok::<(), String>(());
+                    }
+                    Err(e) => {
+                        retry += 1;
+                        if retry >= retry_times {
+                            return Err(format!("分段 {}/{} 下载重试{}次失败：{}", seg_idx + 1, segment_count, retry_times, e));
+                        }
+                        let backoff = 1 << retry;
+                        tokio::time::sleep(Duration::from_secs(backoff)).await;
+                    }
+                }
             }
-
-            let mut stream = response.bytes_stream();
-            let mut segment_pos = start_byte;
-
-            while let Some(chunk_result) = stream.next().await {
-                let chunk = chunk_result.map_err(|e| format!("读取数据失败：{}", e))?;
-                let chunk_len = chunk.len() as u64;
-
-                let mut file = tokio::fs::OpenOptions::new()
-                    .write(true)
-                    .open(&target_path)
-                    .await
-                    .map_err(|e| format!("打开文件失败：{}", e))?;
-
-                file.seek(std::io::SeekFrom::Start(segment_pos)).await
-                    .map_err(|e| format!("定位失败：{}", e))?;
-                file.write_all(&chunk).await
-                    .map_err(|e| format!("写入数据失败：{}", e))?;
-
-                segment_pos += chunk_len;
-                tracker_clone.add_downloaded(chunk_len);
-            }
-
-            let _ = app_handle_clone.emit("download-log", format!(
-                "[分段完成] {}/{} 分段 {}/{}",
-                file_index + 1, total_files, seg_idx + 1, segment_count
-            ));
-
-            Ok::<(), String>(())
+            Ok(())
         });
 
         handles.push(handle);
@@ -1001,13 +1213,13 @@ pub async fn download_files_from_urls(
     };
     let bandwidth = estimate_bandwidth(&test_url).await;
     let connections_per_file = if bandwidth > 0 {
-        (((bandwidth as f64 * 1.6) / 200_000.0) as usize).max(10)
+        (((bandwidth as f64 * 0.8) / 200_000.0) as usize).max(5).min(MAX_CONNECTIONS_PER_FILE)
     } else {
-        10
+        5
     };
 
-    let _ = app_handle.emit("download-log", format!("[测速] 带宽: {}，目标速度: {}/s，每文件 {} 连接",
-        format_speed(bandwidth), format_speed((bandwidth as f64 * 1.6) as u64), connections_per_file));
+    let _ = app_handle.emit("download-log", format!("[测速] 带宽: {}，目标速度: {}/s，每文件 {} 连接 (上限{})",
+        format_speed(bandwidth), format_speed((bandwidth as f64 * 1.6) as u64), connections_per_file, MAX_CONNECTIONS_PER_FILE));
 
     let tracker = Arc::new(GlobalDownloadTracker::new());
     let tracker_clone = tracker.clone();
@@ -1057,6 +1269,9 @@ pub async fn download_files_from_urls(
         }
     });
 
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS));
+    let _ = app_handle.emit("download-log", format!("[下载] 同时下载文件数上限: {}", MAX_CONCURRENT_DOWNLOADS));
+
     let mut tasks = Vec::new();
     for (i, file_info) in files_clone.into_iter().enumerate() {
         let url = format!("{}/{}", base_url, file_info.path);
@@ -1065,8 +1280,10 @@ pub async fn download_files_from_urls(
         let tracker_clone = tracker.clone();
         let file_size = file_info.size;
         let conn_count = connections_per_file;
+        let sem_clone = semaphore.clone();
 
         let task = tokio::spawn(async move {
+            let _permit = sem_clone.acquire().await.unwrap();
             if let Some(parent) = target_path.parent() {
                 let _ = tokio::fs::create_dir_all(parent).await;
             }

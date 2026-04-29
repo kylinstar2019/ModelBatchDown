@@ -26,7 +26,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
-            get_model_files,
+            start_download, stop_download, stop_download_with_cleanup, get_model_files,
             load_tasks, save_tasks, clear_tasks,
             check_login_status, get_user_info, open_wechat_login_window, logout, get_debug_info, notify_login_success, close_login_window,
             create_wechat_qrcode, check_wechat_login, save_user_info

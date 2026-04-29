@@ -518,8 +518,8 @@
 
         <div class="file-select-area" id="file_select_area">
             <div class="modal-row">
-                <label>选择量化版本 / 文件</label>
-                <select id="modal_quant">
+                <label>选择 GGUF 文件</label>
+                <select id="modal_quant" onchange="selectedQuant = this.value;">
                 </select>
             </div>
         </div>
@@ -811,25 +811,25 @@ async function parseUrl() {
     try {
         const result = await invoke('get_model_files', { url });
         currentFiles = result.files || [];
-        isGgufModel = result.is_gguf;
+        const ggufFiles = currentFiles.filter(f => f.toLowerCase().endsWith('.gguf'));
 
-        if (isGgufModel) {
-            const ggufFiles = currentFiles.filter(f => f.toLowerCase().endsWith('.gguf'));
-            if (ggufFiles.length === 0) {
-                statusDiv.textContent = '❌ 未找到 GGUF 文件';
-                statusDiv.classList.add('error');
-            } else {
-                statusDiv.textContent = `✅ 找到 ${ggufFiles.length} 个 GGUF 文件`;
-                quantSelect.innerHTML = ggufFiles.map(f => `<option value="${f}">${f}</option>`).join('');
-                selectedQuant = ggufFiles[0];
-                fileArea.classList.add('visible');
-                document.getElementById('btn_add_confirm').disabled = false;
-            }
+        if (ggufFiles.length > 0) {
+            isGgufModel = true;
+            statusDiv.textContent = `✅ 找到 ${ggufFiles.length} 个 GGUF 文件`;
+            quantSelect.innerHTML = ggufFiles.map(f => `<option value="${f}">${f}</option>`).join('');
+            const q4kIndex = ggufFiles.findIndex(f => f.includes('Q4_K_M'));
+            selectedQuant = q4kIndex >= 0 ? ggufFiles[q4kIndex] : ggufFiles[0];
+            quantSelect.value = selectedQuant;
+            fileArea.classList.add('visible');
+            optArea.classList.remove('visible');
+            document.getElementById('btn_add_confirm').disabled = false;
         } else {
+            isGgufModel = false;
             statusDiv.textContent = `✅ 标准模型，共 ${currentFiles.length} 个文件`;
             selectedMode = 'all';
             updateModeButtons();
             optArea.classList.add('visible');
+            fileArea.classList.remove('visible');
             document.getElementById('btn_add_confirm').disabled = false;
         }
     } catch(e) {

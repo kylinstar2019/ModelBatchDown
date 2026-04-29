@@ -147,19 +147,17 @@ pub fn extract_model_name(url: &str) -> String {
         let path = url.split("huggingface.co/").nth(1).unwrap_or("");
         let parts: Vec<&str> = path.split('?').next().unwrap_or(path).split('/').collect();
         if parts.len() >= 2 {
-            format!("{}/{}", parts[0], parts[1])
+            parts[1].to_string()
         } else {
             "unknown_model".to_string()
         }
     } else if url.contains("modelscope.cn") {
         let path = url.split("modelscope.cn/").nth(1).unwrap_or("");
         let parts: Vec<&str> = path.split('?').next().unwrap_or(path).split('/').collect();
-        if parts.len() >= 2 {
-            if parts[0] == "models" && parts.len() >= 3 {
-                format!("{}/{}", parts[1], parts[2])
-            } else {
-                format!("{}/{}", parts[0], parts[1])
-            }
+        if parts.len() >= 3 && parts[0] == "models" {
+            parts[2].to_string()
+        } else if parts.len() >= 2 {
+            parts[1].to_string()
         } else {
             "unknown_model".to_string()
         }
