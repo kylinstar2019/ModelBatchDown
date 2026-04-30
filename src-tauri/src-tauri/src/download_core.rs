@@ -14,6 +14,8 @@ use crate::network_speed::format_speed;
 const MAX_CONNECTIONS_PER_FILE: usize = 64;
 const MAX_CONCURRENT_DOWNLOADS: usize = 2;
 
+static BANDWIDTH_CACHE: AtomicU64 = AtomicU64::new(0);
+
 pub struct GlobalDownloadTracker {
     total_downloaded: AtomicU64,
     total_uploaded: AtomicU64,
@@ -138,19 +140,48 @@ pub async fn estimate_bandwidth(test_url: &str) -> u64 {
     }
 }
 
+pub fn start_bandwidth_test() {
+    tauri::async_runtime::spawn(async {
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        let test_url = "https://modelscope.cn/modelscope/modelscope_hub/snapshots/download?file=examples/test.bin".to_string();
+        let bandwidth = estimate_bandwidth(&test_url).await;
+        BANDWIDTH_CACHE.store(bandwidth, Ordering::SeqCst);
+    });
+}
+
 pub async fn get_hf_file_size(url: &str) -> Option<u64> {
-    let client = reqwest::Client::new();
-    let response = client.head(url)
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .ok()?;
+
+    let encoded_url = url
+        .replace(" ", "%20")
+        .replace("[", "%5D")
+        .replace("]", "%5D");
+
+    let response = client.get(&encoded_url)
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .header("Range", "bytes=0-0")
         .send()
         .await
         .ok()?;
 
-    if let Some(content_length) = response.headers().get("content-length") {
-        content_length.to_str().ok()?.parse::<u64>().ok()
-    } else {
-        None
+    if let Some(range_header) = response.headers().get("content-range") {
+        let range_str = range_header.to_str().ok()?;
+        if let Some(total_size) = range_str.split('/').last() {
+            return total_size.parse::<u64>().ok();
+        }
     }
+
+    if let Some(content_length) = response.headers().get("content-length") {
+        let size = content_length.to_str().ok()?.parse::<u64>().ok()?;
+        if size > 100 {
+            return Some(size);
+        }
+    }
+
+    None
 }
 
 pub async fn download_model_rust(
@@ -227,27 +258,23 @@ pub async fn huggingface_download(
     let base_url = format!("{}/{}/resolve/main", endpoint, model_id);
     let _ = app_handle.emit("download-log", format!("[HF] 下载基础URL: {}", base_url));
 
-    let total_size_from_api: u64 = files_to_download.iter().map(|f| f.size).sum();
-    let _ = app_handle.emit("download-log", format!("[HF] API返回文件大小：{}", format_bytes(total_size_from_api)));
-
     let mut files_with_size = files_to_download.clone();
-    let mut total_missing = 0u64;
     for f in &mut files_with_size {
-        if f.size == 0 {
+        let min_expected_size = if f.path.ends_with(".gguf") { 1024 * 1024 } else { 1024 };
+        if f.size < min_expected_size {
             let file_url = format!("{}/{}", base_url, f.path);
+            let _ = app_handle.emit("download-log", format!("[HF] 验证文件大小: {}", f.path));
             if let Some(size) = get_hf_file_size(&file_url).await {
-                total_missing += size;
+                let old_size = f.size;
                 f.size = size;
+                if old_size != size {
+                    let _ = app_handle.emit("download-log", format!("[HF] 文件大小修正: {} -> {}", old_size, size));
+                }
             }
         }
     }
 
     let total_size_all: u64 = files_with_size.iter().map(|f| f.size).sum();
-    if total_missing > 0 {
-        let _ = app_handle.emit("download-log", format!("[HF] 通过HEAD补充文件大小：{} + {} = {}",
-            format_bytes(total_size_from_api), format_bytes(total_missing), format_bytes(total_size_all)));
-    }
-
     let _ = app_handle.emit("download-log", format!("[HF] 准备下载 {} 个文件，总大小：{}", files_with_size.len(), format_bytes(total_size_all)));
 
     download_files_from_urls(&base_url, &files_with_size, save_path, app_handle, incomplete_marker).await
@@ -284,9 +311,7 @@ pub async fn modelscope_download(
 
     let _ = app_handle.emit("download-log", format!("[MS] 准备下载 {} 个文件，总大小：{}", total_files, format_bytes(total_size_all)));
 
-    let _ = app_handle.emit("download-log", format!("[测速] 正在测试网络带宽..."));
-    let test_url = format!("https://modelscope.cn/{}/resolve/master/model.safetensors", model_id);
-    let bandwidth = estimate_bandwidth(&test_url).await;
+    let bandwidth = BANDWIDTH_CACHE.load(Ordering::SeqCst);
     let target_speed = (bandwidth as f64 * 1.6) as u64;
     let connections_per_file = if bandwidth > 0 {
         (((bandwidth as f64 * 0.8) / 200_000.0) as usize).max(5).min(MAX_CONNECTIONS_PER_FILE)
@@ -365,7 +390,7 @@ pub async fn modelscope_download(
                 let _ = tokio::fs::create_dir_all(parent).await;
             }
 
-            if file_size > 50 * 1024 * 1024 && conn_count > 1 {
+            if file_size > 100 * 1024 * 1024 && conn_count > 1 {
                 match download_file_with_segments(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size, conn_count).await {
                     Ok(_) => {
                         let _ = app_handle_clone.emit("download-log", format!("[完成] {}", file_info.path));
@@ -820,7 +845,7 @@ pub async fn download_single_file_with_tracker(
     tracker: Arc<GlobalDownloadTracker>,
     file_size: u64,
 ) -> Result<(), String> {
-    let start_pos = if save_path.exists() {
+    let start_pos = if save_path.exists() && file_size > 0 {
         let metadata = std::fs::metadata(save_path).map_err(|e| format!("读取文件失败：{}", e))?;
         let len = metadata.len();
         if len >= file_size {
@@ -842,7 +867,9 @@ pub async fn download_single_file_with_tracker(
 
     let mut buffered_file = BufWriter::new(file);
 
-    buffered_file.get_mut().set_len(file_size).await.map_err(|e| format!("设置文件大小失败：{}", e))?;
+    if file_size > 0 {
+        buffered_file.get_mut().set_len(file_size).await.map_err(|e| format!("设置文件大小失败：{}", e))?;
+    }
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -1205,13 +1232,7 @@ pub async fn download_files_from_urls(
 
     let _ = app_handle.emit("download-log", format!("[下载] 准备下载 {} 个文件，总大小：{}", total_files, format_bytes(total_size_all)));
 
-    let _ = app_handle.emit("download-log", format!("[测速] 正在测试网络带宽..."));
-    let test_url = if !files.is_empty() {
-        format!("{}/{}", base_url, files[0].path)
-    } else {
-        base_url.to_string()
-    };
-    let bandwidth = estimate_bandwidth(&test_url).await;
+    let bandwidth = BANDWIDTH_CACHE.load(Ordering::SeqCst);
     let connections_per_file = if bandwidth > 0 {
         (((bandwidth as f64 * 0.8) / 200_000.0) as usize).max(5).min(MAX_CONNECTIONS_PER_FILE)
     } else {
@@ -1288,7 +1309,7 @@ pub async fn download_files_from_urls(
                 let _ = tokio::fs::create_dir_all(parent).await;
             }
 
-            if file_size > 50 * 1024 * 1024 && conn_count > 1 {
+            if file_size > 100 * 1024 * 1024 && conn_count > 1 {
                 match download_file_with_segments(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size, conn_count).await {
                     Ok(_) => {
                         let _ = app_handle_clone.emit("download-log", format!("[完成] {}", file_info.path));
