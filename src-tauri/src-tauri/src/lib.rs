@@ -38,6 +38,7 @@ pub fn run() {
                 .expect("Failed to build HTML response")
         })
         .setup(|app| {
+            start_bandwidth_test();
             let _window = WebviewWindowBuilder::new(
                 app,
                 "main",

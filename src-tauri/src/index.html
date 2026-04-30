@@ -577,13 +577,15 @@ async function checkLoginStatus() {
 function updateLoginStatusBar() {
     const statusBar = document.getElementById('loginStatusBar');
     if (!statusBar) return;
-    
+
+    /* // 微信登录功能已隐藏
     if (isLoggedIn && currentUser) {
         const nickname = currentUser.nickname || currentUser.name || currentUser.username || '用户';
         statusBar.innerHTML = `<span style="color:#51cf66;">✅ 已登录: ${nickname}</span> | <a href="#" onclick="handleLogout();return false;" style="color:#ff6b6b;">退出登录</a>`;
     } else {
         statusBar.innerHTML = `<span style="color:#ff6b6b;">❌ 未登录</span> | <a href="#" onclick="handleLogin();return false;" style="color:#00d4ff;">微信登录</a>`;
     }
+    */
 }
 
 async function handleLogout() {
@@ -887,11 +889,13 @@ async function chooseFolder() {
 }
 
 async function startDownload() {
+    /* // 微信登录限制已注释掉
     if (!isLoggedIn) {
         appendLog('❌ 请先登录后再使用下载功能');
         await handleLogin();
         return;
     }
+    */
     if (downloadTasks.length === 0) return alert('请先添加下载任务');
     const saveRoot = document.getElementById('save_root').value.trim();
     if (!saveRoot) return alert('请输入或选择保存目录');
