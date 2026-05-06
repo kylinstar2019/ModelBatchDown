@@ -1,14 +1,15 @@
 use futures::StreamExt;
+use sha2::{Sha256, Digest};
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
-use tokio::io::{AsyncSeekExt, AsyncWriteExt, BufWriter};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
 
 use crate::login::AppState;
-use crate::model_info::{extract_model_id, extract_model_name, get_hf_files_with_size, get_ms_files_with_size, FileInfo};
+use crate::model_info::{extract_model_id, extract_model_name, get_hf_file_sha256, get_hf_files_with_size, get_ms_files_with_size, FileInfo};
 use crate::network_speed::format_speed;
 
 const MAX_CONNECTIONS_PER_FILE: usize = 64;
@@ -184,6 +185,40 @@ pub async fn get_hf_file_size(url: &str) -> Option<u64> {
     None
 }
 
+pub async fn calculate_file_sha256(file_path: &std::path::Path) -> Result<String, String> {
+    let file = tokio::fs::File::open(file_path)
+        .await
+        .map_err(|e| format!("打开文件失败：{}", e))?;
+
+    let mut file = tokio::io::BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1024 * 1024];
+
+    loop {
+        let bytes_read = file.read(&mut buffer)
+            .await
+            .map_err(|e| format!("读取文件失败：{}", e))?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    let result = hasher.finalize();
+    Ok(hex_string(&result))
+}
+
+fn hex_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+pub async fn verify_file_sha256(file_path: &std::path::Path, expected_sha256: &str) -> Result<bool, String> {
+    let _ = std::fs::metadata(file_path).map_err(|e| format!("文件不存在：{}", e))?;
+    let actual_sha256 = calculate_file_sha256(file_path).await?;
+    let matches = actual_sha256.to_lowercase() == expected_sha256.to_lowercase();
+    Ok(matches)
+}
+
 pub async fn download_model_rust(
     url: &str,
     save_path: &str,
@@ -272,10 +307,18 @@ pub async fn huggingface_download(
                 }
             }
         }
+
+        if f.sha256.is_none() {
+            if let Some(sha256) = get_hf_file_sha256(model_id, &f.path) {
+                let _ = app_handle.emit("download-log", format!("[HF] 获取SHA256: {} - {}", f.path, &sha256[..8]));
+                f.sha256 = Some(sha256);
+            }
+        }
     }
 
     let total_size_all: u64 = files_with_size.iter().map(|f| f.size).sum();
-    let _ = app_handle.emit("download-log", format!("[HF] 准备下载 {} 个文件，总大小：{}", files_with_size.len(), format_bytes(total_size_all)));
+    let sha256_count = files_with_size.iter().filter(|f| f.sha256.is_some()).count();
+    let _ = app_handle.emit("download-log", format!("[HF] 准备下载 {} 个文件，总大小：{}，可校验SHA256: {} 个", files_with_size.len(), format_bytes(total_size_all), sha256_count));
 
     download_files_from_urls(&base_url, &files_with_size, save_path, app_handle, incomplete_marker).await
 }
@@ -391,7 +434,7 @@ pub async fn modelscope_download(
             }
 
             if file_size > 100 * 1024 * 1024 && conn_count > 1 {
-                match download_file_with_segments(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size, conn_count).await {
+                match download_file_with_segments(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size, conn_count, file_info.sha256.as_deref()).await {
                     Ok(_) => {
                         let _ = app_handle_clone.emit("download-log", format!("[完成] {}", file_info.path));
                         1
@@ -402,7 +445,7 @@ pub async fn modelscope_download(
                     }
                 }
             } else {
-                match download_single_file_with_tracker(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size).await {
+                match download_single_file_with_tracker(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size, file_info.sha256.as_deref()).await {
                     Ok(_) => {
                         let _ = app_handle_clone.emit("download-log", format!("[完成] {}", file_info.path));
                         1
@@ -844,6 +887,7 @@ pub async fn download_single_file_with_tracker(
     total_files: usize,
     tracker: Arc<GlobalDownloadTracker>,
     file_size: u64,
+    expected_sha256: Option<&str>,
 ) -> Result<(), String> {
     let start_pos = if save_path.exists() && file_size > 0 {
         let metadata = std::fs::metadata(save_path).map_err(|e| format!("读取文件失败：{}", e))?;
@@ -932,6 +976,23 @@ pub async fn download_single_file_with_tracker(
         save_path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
     ));
 
+    if let Some(expected) = expected_sha256 {
+        let _ = app_handle.emit("download-log", format!("[校验] 开始SHA256校验..."));
+        match verify_file_sha256(save_path, expected).await {
+            Ok(true) => {
+                let _ = app_handle.emit("download-log", format!("[校验] SHA256校验通过！"));
+            }
+            Ok(false) => {
+                let _ = app_handle.emit("download-log", format!("[校验] SHA256校验失败，删除文件并返回错误"));
+                let _ = tokio::fs::remove_file(save_path).await;
+                return Err(format!("SHA256校验失败，文件已损坏"));
+            }
+            Err(e) => {
+                let _ = app_handle.emit("download-log", format!("[校验] SHA256校验出错：{}", e));
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -994,6 +1055,7 @@ pub async fn download_file_with_segments(
     tracker: Arc<GlobalDownloadTracker>,
     file_size: u64,
     segment_count: usize,
+    expected_sha256: Option<&str>,
 ) -> Result<(), String> {
     let encoded_url = url
         .replace(" ", "%20")
@@ -1077,6 +1139,30 @@ pub async fn download_file_with_segments(
     for handle in handles {
         if let Err(e) = handle.await {
             return Err(e.to_string());
+        }
+    }
+
+    let _ = app_handle.emit("download-log", format!(
+        "[分段完成] {}/{} - {}",
+        file_index + 1,
+        total_files,
+        save_path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+    ));
+
+    if let Some(expected) = expected_sha256 {
+        let _ = app_handle.emit("download-log", format!("[校验] 开始SHA256校验..."));
+        match verify_file_sha256(save_path, expected).await {
+            Ok(true) => {
+                let _ = app_handle.emit("download-log", format!("[校验] SHA256校验通过！"));
+            }
+            Ok(false) => {
+                let _ = app_handle.emit("download-log", format!("[校验] SHA256校验失败，删除文件并返回错误"));
+                let _ = tokio::fs::remove_file(save_path).await;
+                return Err(format!("SHA256校验失败，文件已损坏"));
+            }
+            Err(e) => {
+                let _ = app_handle.emit("download-log", format!("[校验] SHA256校验出错：{}", e));
+            }
         }
     }
 
@@ -1310,7 +1396,7 @@ pub async fn download_files_from_urls(
             }
 
             if file_size > 100 * 1024 * 1024 && conn_count > 1 {
-                match download_file_with_segments(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size, conn_count).await {
+                match download_file_with_segments(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size, conn_count, file_info.sha256.as_deref()).await {
                     Ok(_) => {
                         let _ = app_handle_clone.emit("download-log", format!("[完成] {}", file_info.path));
                         1
@@ -1321,7 +1407,7 @@ pub async fn download_files_from_urls(
                     }
                 }
             } else {
-                match download_single_file_with_tracker(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size).await {
+                match download_single_file_with_tracker(&url, &target_path, &app_handle_clone, i, total_files, tracker_clone, file_size, file_info.sha256.as_deref()).await {
                     Ok(_) => {
                         let _ = app_handle_clone.emit("download-log", format!("[完成] {}", file_info.path));
                         1

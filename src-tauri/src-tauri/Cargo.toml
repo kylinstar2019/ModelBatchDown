@@ -31,3 +31,6 @@ indicatif = "0.18"
 
 # System monitoring for network speed
 sysinfo = "0.31"
+
+# SHA256 checksum
+sha2 = "0.10"
