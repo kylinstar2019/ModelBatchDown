@@ -16,9 +16,29 @@
         .header {
             text-align: center;
             padding: 14px 20px 8px;
+            position: relative;
         }
         .header h1 { font-size: 24px; color: #00d4ff; }
         .header p.subtitle { color: #888; font-size: 13px; margin-top: 2px; }
+        .lang-selector {
+            position: absolute;
+            top: 14px;
+            right: 20px;
+            display: flex;
+            gap: 4px;
+        }
+        .lang-btn {
+            padding: 4px 10px;
+            border: 1px solid #2a4a6a;
+            border-radius: 4px;
+            background: #16213e;
+            color: #888;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .lang-btn:hover { border-color: #00d4ff; color: #e0e0e0; }
+        .lang-btn.active { background: #00d4ff; color: #fff; border-color: #00d4ff; }
         .main-row {
             display: flex;
             gap: 16px;
@@ -453,40 +473,44 @@
 <body>
 <div class="header">
     <h1>🚀 ModelBatchDown</h1>
-    <p class="subtitle">支持 HF / 魔塔双平台 | GGUF量化选择 | 实时日志 | 自动关机</p>
+    <p class="subtitle" id="subtitle">支持 HF / 魔塔双平台 | GGUF量化选择 | 实时日志 | 自动关机</p>
+    <div class="lang-selector">
+        <button class="lang-btn active" onclick="setLanguage('zh')">中文</button>
+        <button class="lang-btn" onclick="setLanguage('en')">EN</button>
+    </div>
     <div id="loginStatusBar" style="margin-top:8px;font-size:13px;"></div>
 </div>
 
 <div class="main-row">
     <div class="left-panel">
         <div class="card" style="flex:1">
-            <div class="card-title">📥 模型下载配置</div>
+            <div class="card-title" data-i18n="download_config">📥 模型下载配置</div>
 
-            <div class="item-count">已添加 <span id="item_count">0</span> 个下载任务</div>
+            <div class="item-count"><span data-i18n="added">已添加</span> <span id="item_count">0</span> <span data-i18n="tasks">个下载任务</span></div>
 
             <div class="model-list" id="model_list">
-                <div class="empty-list">暂无下载任务，点击下方「+ 添加模型」按钮添加</div>
+                <div class="empty-list" id="empty_list_text" data-i18n="no_tasks">暂无下载任务，点击下方「+ 添加模型」按钮添加</div>
             </div>
 
 <div style="display:flex;gap:10px;margin-bottom:12px">
-                <button class="btn-add" id="btn_add_task" onclick="openModal()" style="flex:1">+ 添加模型</button>
-                <button class="btn-clear" id="btn_clear_list" onclick="clearAllTasks()" style="flex:1">🗑️ 清空列表</button>
+                <button class="btn-add" id="btn_add_task" onclick="openModal()" style="flex:1" data-i18n="add_model">+ 添加模型</button>
+                <button class="btn-clear" id="btn_clear_list" onclick="clearAllTasks()" style="flex:1" data-i18n="clear_list">🗑️ 清空列表</button>
             </div>
 
-            <label>保存根目录</label>
+            <label data-i18n="save_root">保存根目录</label>
             <div class="path-input-wrapper">
                 <input id="save_root" type="text" placeholder="F:\AI_Tools\temp\models">
-                <button onclick="chooseFolder()" id="btn_choose_folder">📁 选择</button>
+                <button onclick="chooseFolder()" id="btn_choose_folder" data-i18n="select">📁 选择</button>
             </div>
 
             <div class="checkbox-row" style="margin-top:14px">
                 <input type="checkbox" id="auto_shutdown">
-                <label style="margin:0" for="auto_shutdown">下载完成后自动关机</label>
+                <label style="margin:0" for="auto_shutdown" data-i18n="auto_shutdown">下载完成后自动关机</label>
             </div>
 
             <div class="btn-group">
-                <button class="btn-start" id="btn_start" onclick="startDownload()">▶️ 开始下载</button>
-                <button class="btn-stop" id="btn_stop" onclick="stopDownload()" disabled>⏹️ 停止</button>
+                <button class="btn-start" id="btn_start" onclick="startDownload()" data-i18n="start_download">▶️ 开始下载</button>
+                <button class="btn-stop" id="btn_stop" onclick="stopDownload()" disabled data-i18n="stop">⏹️ 停止</button>
             </div>
         </div>
     </div>
@@ -494,7 +518,7 @@
     <div class="right-panel">
         <div class="card log-card">
             <div class="status-bar">
-                <span><span class="status-dot" id="status_dot"></span><span id="status_text">就绪</span></span>
+                <span><span class="status-dot" id="status_dot"></span><span id="status_text" data-i18n="ready">就绪</span></span>
                 <span id="log_count"></span>
             </div>
             <div id="log_output">
@@ -505,40 +529,40 @@
 
 <div class="modal-overlay hidden" id="modal_overlay" onclick="if(event.target===this)closeModal()">
     <div class="modal">
-        <h3>➕ 添加下载任务</h3>
+        <h3 data-i18n="add_task">➕ 添加下载任务</h3>
 
         <div class="modal-row">
-            <label>模型链接</label>
+            <label data-i18n="model_url">模型链接</label>
             <input type="text" id="modal_url" placeholder="https://huggingface.co/xxx/model-name&#10;或 https://modelscope.cn/xxx/model-name">
         </div>
 
-        <button class="btn-parse" onclick="parseUrl()" style="width:100%">🔍 解析地址</button>
+        <button class="btn-parse" onclick="parseUrl()" style="width:100%" data-i18n="parse_url">🔍 解析地址</button>
 
         <div class="parse-status" id="parse_status"></div>
 
         <div class="file-select-area" id="file_select_area">
             <div class="modal-row">
-                <label>选择 GGUF 文件</label>
+                <label data-i18n="select_gguf">选择 GGUF 文件</label>
                 <select id="modal_quant" onchange="selectedQuant = this.value;">
                 </select>
             </div>
         </div>
 
         <div class="download-option" id="download_option">
-            <div class="option-title">选择下载模式：</div>
+            <div class="option-title" data-i18n="select_mode">选择下载模式：</div>
             <div class="option-btns">
-                <button class="option-btn selected" onclick="selectMode('all')" id="mode_all">
-                    📥 全部下载<br><small style="opacity:0.7">下载所有文件</small>
+                <button class="option-btn selected" onclick="selectMode('all')" id="mode_all" data-i18n="download_all_btn">
+                    📥 <span data-i18n="download_all">全部下载</span><br><small style="opacity:0.7" data-i18n="download_all_desc">下载所有文件</small>
                 </button>
-                <button class="option-btn" onclick="selectMode('main')" id="mode_main">
-                    ⭐ 主要下载<br><small style="opacity:0.7">仅关键运行文件</small>
+                <button class="option-btn" onclick="selectMode('main')" id="mode_main" data-i18n="download_main_btn">
+                    ⭐ <span data-i18n="download_main">主要下载</span><br><small style="opacity:0.7" data-i18n="download_main_desc">仅关键运行文件</small>
                 </button>
             </div>
         </div>
 
         <div class="modal-btns">
-            <button class="btn-cancel" onclick="closeModal()">取消</button>
-            <button class="btn-confirm" onclick="addToList()" id="btn_add_confirm" disabled>✓ 添加</button>
+            <button class="btn-cancel" onclick="closeModal()" data-i18n="cancel">取消</button>
+            <button class="btn-confirm" onclick="addToList()" id="btn_add_confirm" disabled data-i18n="confirm_add">✓ 添加</button>
         </div>
     </div>
 </div>
@@ -546,6 +570,127 @@
 <script>
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
+
+const translations = {
+    zh: {
+        download_config: '📥 模型下载配置',
+        added: '已添加',
+        tasks: '个下载任务',
+        no_tasks: '暂无下载任务，点击下方「+ 添加模型」按钮添加',
+        add_model: '+ 添加模型',
+        clear_list: '🗑️ 清空列表',
+        save_root: '保存根目录',
+        select: '📁 选择',
+        auto_shutdown: '下载完成后自动关机',
+        start_download: '▶️ 开始下载',
+        stop: '⏹️ 停止',
+        ready: '就绪',
+        add_task: '➕ 添加下载任务',
+        model_url: '模型链接',
+        parse_url: '🔍 解析地址',
+        select_gguf: '选择 GGUF 文件',
+        select_mode: '选择下载模式：',
+        download_all: '全部下载',
+        download_all_desc: '下载所有文件',
+        download_main: '主要下载',
+        download_main_desc: '仅关键运行文件',
+        cancel: '取消',
+        confirm_add: '✓ 添加',
+        subtitle: '支持 HF / 魔塔双平台 | GGUF量化选择 | 实时日志 | 自动关机',
+        no_url: '请输入模型链接',
+        parse_fail: '解析失败',
+        gguf_files: '个 GGUF 文件',
+        standard_model: '标准模型',
+        files: '个文件',
+        parse_success: '✅ 找到',
+        no_parse: '请先解析地址',
+        no_tasks_alert: '请先添加下载任务',
+        no_save_path: '请输入或选择保存目录',
+        starting: '正在启动...',
+        clear_confirm: '确定要清空所有下载任务吗？',
+        stop_confirm: '确定要停止下载吗？',
+        delete_incomplete: '是否删除未下载完成的模型文件夹？',
+        all_complete: '✅ 所有下载任务完成！',
+        downloading: '下载中...',
+        waiting: '等待中',
+        paused: '已暂停',
+        error: '错误',
+        complete: '完成'
+    },
+    en: {
+        download_config: '📥 Download Config',
+        added: 'Added',
+        tasks: 'tasks',
+        no_tasks: 'No tasks, click "+ Add Model" below to add',
+        add_model: '+ Add Model',
+        clear_list: '🗑️ Clear List',
+        save_root: 'Save Root',
+        select: '📁 Select',
+        auto_shutdown: 'Auto shutdown after download',
+        start_download: '▶️ Start Download',
+        stop: '⏹️ Stop',
+        ready: 'Ready',
+        add_task: '➕ Add Task',
+        model_url: 'Model URL',
+        parse_url: '🔍 Parse URL',
+        select_gguf: 'Select GGUF File',
+        select_mode: 'Select Download Mode:',
+        download_all: 'Download All',
+        download_all_desc: 'Download all files',
+        download_main: 'Main Files',
+        download_main_desc: 'Essential files only',
+        cancel: 'Cancel',
+        confirm_add: '✓ Add',
+        subtitle: 'HF / ModelScope | GGUF Quantization | Live Log | Auto Shutdown',
+        no_url: 'Please enter model URL',
+        parse_fail: 'Parse failed',
+        gguf_files: 'GGUF files',
+        standard_model: 'Standard model',
+        files: 'files',
+        parse_success: '✅ Found',
+        no_parse: 'Please parse URL first',
+        no_tasks_alert: 'Please add download tasks first',
+        no_save_path: 'Please select save directory',
+        starting: 'Starting...',
+        clear_confirm: 'Clear all download tasks?',
+        stop_confirm: 'Stop download?',
+        delete_incomplete: 'Delete incomplete model folders?',
+        all_complete: '✅ All downloads complete!',
+        downloading: 'Downloading...',
+        waiting: 'Waiting',
+        paused: 'Paused',
+        error: 'Error',
+        complete: 'Complete'
+    }
+};
+
+let currentLang = localStorage.getItem('lang') || 'zh';
+
+function setLanguage(lang) {
+    currentLang = lang;
+    localStorage.setItem('lang', lang);
+    applyTranslations();
+    updateLangButtons();
+}
+
+function applyTranslations() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (translations[currentLang][key]) {
+            el.textContent = translations[currentLang][key];
+        }
+    });
+    document.getElementById('subtitle').textContent = translations[currentLang].subtitle;
+}
+
+function updateLangButtons() {
+    document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.textContent === (currentLang === 'zh' ? '中文' : 'EN')) {
+            btn.classList.add('active');
+        }
+    });
+}
 
 let downloadTasks = [];
 let currentFiles = [];
@@ -622,7 +767,7 @@ async function saveTasks() {
 
 async function clearAllTasks() {
     if (downloadTasks.length === 0) return;
-    if (!confirm('确定要清空所有下载任务吗？')) return;
+    if (!confirm(translations[currentLang].clear_confirm)) return;
     downloadTasks = [];
     await saveTasks();
     renderTaskList();
@@ -654,26 +799,26 @@ function renderTaskList() {
     count.textContent = downloadTasks.length;
 
     if (downloadTasks.length === 0) {
-        list.innerHTML = '<div class="empty-list">暂无下载任务，点击下方「+ 添加模型」按钮添加</div>';
+        list.innerHTML = `<div class="empty-list">${translations[currentLang].no_tasks}</div>`;
         return;
     }
 
     const isRunning = document.getElementById('btn_start').disabled;
     list.innerHTML = downloadTasks.map((task, i) => {
-        const modeText = task.mode === 'main' ? '⭐ 主要' : (task.quant ? '🔹 ' + task.quant : '📥 全部');
+        const modeText = task.mode === 'main' ? '⭐ ' + translations[currentLang].download_main : (task.quant ? '🔹 ' + task.quant : '📥 ' + translations[currentLang].download_all);
         const disabledAttr = isRunning ? 'disabled' : '';
         const statusClass = task.status || 'waiting';
         const progress = task.progress || 0;
         const speed = task.speed || '0 B/s';
         const downloadedSize = task.downloaded || 0;
         const totalSize = task.total || 0;
-        
+
         let badgeClass = '';
-        let badgeText = '等待中';
-        if (statusClass === 'downloading') { badgeClass = 'downloading'; badgeText = '下载中'; }
-        else if (statusClass === 'paused') { badgeClass = 'paused'; badgeText = '已暂停'; }
-        else if (statusClass === 'error') { badgeClass = 'error'; badgeText = '错误'; }
-        else if (statusClass === 'success') { badgeClass = 'success'; badgeText = '完成'; }
+        let badgeText = translations[currentLang].waiting;
+        if (statusClass === 'downloading') { badgeClass = 'downloading'; badgeText = translations[currentLang].downloading; }
+        else if (statusClass === 'paused') { badgeClass = 'paused'; badgeText = translations[currentLang].paused; }
+        else if (statusClass === 'error') { badgeClass = 'error'; badgeText = translations[currentLang].error; }
+        else if (statusClass === 'success') { badgeClass = 'success'; badgeText = translations[currentLang].complete; }
         
         const progressBarClass = statusClass === 'paused' ? ' paused' : (statusClass === 'error' ? ' error' : '');
         
@@ -792,7 +937,7 @@ function selectMode(mode) {
 
 async function parseUrl() {
     const url = document.getElementById('modal_url').value.trim();
-    if (!url) return alert('请输入模型链接');
+    if (!url) return alert(translations[currentLang].no_url);
 
     parsedUrl = url;
     const fileArea = document.getElementById('file_select_area');
@@ -841,7 +986,7 @@ async function parseUrl() {
 }
 
 async function addToList() {
-    if (!parsedUrl) return alert('请先解析地址');
+    if (!parsedUrl) return alert(translations[currentLang].no_parse);
 
     const task = {
         url: parsedUrl,
@@ -870,7 +1015,7 @@ function appendLog(text) {
 function setStatus(running, text) {
     const dot = document.getElementById('status_dot');
     dot.className = 'status-dot' + (running ? ' running' : '');
-    document.getElementById('status_text').textContent = text || (running ? '下载中...' : '就绪');
+    document.getElementById('status_text').textContent = text || (running ? translations[currentLang].downloading : translations[currentLang].ready);
     document.getElementById('btn_start').disabled = running;
     document.getElementById('btn_stop').disabled = !running;
     document.getElementById('btn_add_task').disabled = running;
@@ -896,9 +1041,9 @@ async function startDownload() {
         return;
     }
     */
-    if (downloadTasks.length === 0) return alert('请先添加下载任务');
+    if (downloadTasks.length === 0) return alert(translations[currentLang].no_tasks_alert);
     const saveRoot = document.getElementById('save_root').value.trim();
-    if (!saveRoot) return alert('请输入或选择保存目录');
+    if (!saveRoot) return alert(translations[currentLang].no_save_path);
     const autoShutdown = document.getElementById('auto_shutdown').checked;
 
     const urls = downloadTasks.map(t => {
@@ -930,10 +1075,10 @@ async function startDownload() {
 }
 
 async function stopDownload() {
-    if (!confirm('确定要停止下载吗？')) return;
-    
+    if (!confirm(translations[currentLang].stop_confirm)) return;
+
     const saveRoot = document.getElementById('save_root').value.trim();
-    if (saveRoot && confirm('是否删除未下载完成的模型文件夹？')) {
+    if (saveRoot && confirm(translations[currentLang].delete_incomplete)) {
         try {
             const result = await invoke('stop_download_with_cleanup', { saveRoot });
             appendLog(result);
@@ -1089,6 +1234,8 @@ function closeQrLogin() {
 
 loadTasks();
 checkLoginStatus();
+applyTranslations();
+updateLangButtons();
 </script>
 
 <div id="qrLoginModal" class="qr-login-modal">

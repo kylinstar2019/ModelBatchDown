@@ -19,6 +19,9 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "publisher": "CN=kylinstar",
+    "shortDescription": "模型批量下载器",
+    "longDescription": "支持HuggingFace、ModelScope等平台的模型批量下载工具",
     "windows": {
       "nsis": {
         "installMode": "currentUser"

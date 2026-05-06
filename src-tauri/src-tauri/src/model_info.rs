@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct FileInfo {
     pub path: String,
     pub size: u64,
+    pub sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +88,7 @@ pub fn get_ms_files_with_size(model_id: &str) -> Result<Vec<FileInfo>, String> {
                 files.push(FileInfo {
                     path: path.to_string(),
                     size,
+                    sha256: None,
                 });
             }
         }
@@ -127,6 +129,7 @@ pub fn get_hf_files_with_size(model_id: &str) -> Result<Vec<FileInfo>, String> {
             files.push(FileInfo {
                 path: rfilename.to_string(),
                 size,
+                sha256: None,
             });
         }
     }
@@ -189,4 +192,21 @@ pub fn extract_model_id(url: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+pub fn get_hf_file_sha256(model_id: &str, filename: &str) -> Option<String> {
+    let endpoint = std::env::var("HF_ENDPOINT").unwrap_or_else(|_| "https://hf-mirror.com".to_string());
+    let url = format!("{}/api/models/{}/revision/main/files/{}", endpoint, model_id, filename);
+
+    let response = ureq::get(&url)
+        .call()
+        .ok()?;
+
+    let json: serde_json::Value = response.into_json().ok()?;
+
+    let sha256 = json.get("sha256")
+        .and_then(|s| s.as_str())
+        .map(String::from);
+
+    sha256
 }
