@@ -1,5 +1,5 @@
 # ModelBatchDown
-##微软商店地址（感谢支持）
+## 微软商店地址（感谢支持）
 https://apps.microsoft.com/detail/9P2DRDJ5Q8GS?hl=en-us&gl=CN&ocid=pdpshare
 
 **模型批量下载器** — 支持 HuggingFace 和 ModelScope 双平台的离线模型批量下载工具
