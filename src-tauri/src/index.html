@@ -43,7 +43,8 @@
             display: flex;
             gap: 16px;
             padding: 0 20px 16px;
-            height: calc(100vh - 80px);
+            min-height: calc(100vh - 80px);
+            height: auto;
         }
         .left-panel {
             width: 420px;
@@ -369,8 +370,93 @@
         .file-select-area {
             margin-top: 12px;
             display: none;
+            max-height: 300px;
         }
         .file-select-area.visible { display: block; }
+        .file-list-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .file-list-header label {
+            font-size: 13px;
+            color: #00d4ff;
+            font-weight: 600;
+        }
+        .file-list-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .btn-select-all {
+            padding: 3px 8px;
+            font-size: 11px;
+            background: #2a4a6a;
+            color: #ccc;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-select-all:hover {
+            background: #3a5a7a;
+            color: #fff;
+        }
+        .file-list-container {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #0a0f18;
+            border: 1px solid #2a4a6a;
+            border-radius: 6px;
+            padding: 8px;
+        }
+        .file-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            background: #16213e;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .file-item:hover {
+            background: #1e2a4a;
+        }
+        .file-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #00d4ff;
+            cursor: pointer;
+        }
+        .file-item-name {
+            flex: 1;
+            word-break: break-all;
+            color: #e0e0e0;
+        }
+        .file-item-size {
+            color: #888;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .file-summary {
+            margin-top: 8px;
+            padding: 8px;
+            background: #16213e;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #aaa;
+            text-align: center;
+        }
+        .file-summary span {
+            color: #00d4ff;
+            font-weight: 600;
+        }
         .download-option {
             margin-top: 12px;
             display: none;
@@ -468,6 +554,48 @@
             font-size: 14px;
         }
         .qr-login-box button:hover { opacity: 0.85; }
+
+        /* 全局滚动条样式（模型列表 + 日志框） */
+        .model-list::-webkit-scrollbar,
+        #log_output::-webkit-scrollbar,
+        .file-list-container::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        .model-list::-webkit-scrollbar-track,
+        #log_output::-webkit-scrollbar-track,
+        .file-list-container::-webkit-scrollbar-track {
+            background: #0a0f18;
+            border-radius: 5px;
+        }
+        .model-list::-webkit-scrollbar-thumb,
+        #log_output::-webkit-scrollbar-thumb,
+        .file-list-container::-webkit-scrollbar-thumb {
+            background: #2a4a6a;
+            border-radius: 5px;
+            border: 2px solid #0a0f18;
+        }
+        .model-list::-webkit-scrollbar-thumb:hover,
+        #log_output::-webkit-scrollbar-thumb:hover,
+        .file-list-container::-webkit-scrollbar-thumb:hover {
+            background: #00d4ff;
+        }
+        /* 始终显示滚动条（即使未溢出也保留轨道） */
+        .model-list,
+        #log_output,
+        .file-list-container {
+            scrollbar-width: thin;
+            scrollbar-color: #2a4a6a #0a0f18;
+        }
+        /* 给日志框设个最小/最大高度，确保内容多时滚动 */
+        #log_output {
+            min-height: 320px;
+            max-height: calc(100vh - 220px);
+        }
+        .model-list {
+            min-height: 160px;
+            max-height: calc(100vh - 360px);
+        }
     </style>
 </head>
 <body>
@@ -483,6 +611,10 @@
 
 <div class="main-row">
     <div class="left-panel">
+        <div class="action-bar" style="display:flex;gap:10px;margin-bottom:14px">
+            <button class="btn-start" id="btn_start" onclick="startDownload()" style="flex:1;padding:13px 16px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,#00d4ff,#0099cc);color:#fff" data-i18n="start_download">▶️ 开始下载</button>
+            <button class="btn-stop" id="btn_stop" onclick="stopDownload()" style="flex:1;padding:13px 16px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,#ff4757,#cc3344);color:#fff" disabled data-i18n="stop">⏹️ 停止</button>
+        </div>
         <div class="card" style="flex:1">
             <div class="card-title" data-i18n="download_config">📥 模型下载配置</div>
 
@@ -492,7 +624,7 @@
                 <div class="empty-list" id="empty_list_text" data-i18n="no_tasks">暂无下载任务，点击下方「+ 添加模型」按钮添加</div>
             </div>
 
-<div style="display:flex;gap:10px;margin-bottom:12px">
+            <div style="display:flex;gap:10px;margin-bottom:12px">
                 <button class="btn-add" id="btn_add_task" onclick="openModal()" style="flex:1" data-i18n="add_model">+ 添加模型</button>
                 <button class="btn-clear" id="btn_clear_list" onclick="clearAllTasks()" style="flex:1" data-i18n="clear_list">🗑️ 清空列表</button>
             </div>
@@ -506,11 +638,6 @@
             <div class="checkbox-row" style="margin-top:14px">
                 <input type="checkbox" id="auto_shutdown">
                 <label style="margin:0" for="auto_shutdown" data-i18n="auto_shutdown">下载完成后自动关机</label>
-            </div>
-
-            <div class="btn-group">
-                <button class="btn-start" id="btn_start" onclick="startDownload()" data-i18n="start_download">▶️ 开始下载</button>
-                <button class="btn-stop" id="btn_stop" onclick="stopDownload()" disabled data-i18n="stop">⏹️ 停止</button>
             </div>
         </div>
     </div>
@@ -541,11 +668,17 @@
         <div class="parse-status" id="parse_status"></div>
 
         <div class="file-select-area" id="file_select_area">
-            <div class="modal-row">
-                <label data-i18n="select_gguf">选择 GGUF 文件</label>
-                <select id="modal_quant" onchange="selectedQuant = this.value;">
-                </select>
+            <div class="file-list-header">
+                <label data-i18n="select_files">选择要下载的文件</label>
+                <div class="file-list-actions">
+                    <button type="button" class="btn-select-all" onclick="selectAllFiles(true)" data-i18n="select_all">全选</button>
+                    <button type="button" class="btn-select-all" onclick="selectAllFiles(false)" data-i18n="deselect_all">取消</button>
+                </div>
             </div>
+            <div class="file-list-container" id="file_list_container">
+                <div class="file-list" id="file_list"></div>
+            </div>
+            <div class="file-summary" id="file_summary"></div>
         </div>
 
         <div class="download-option" id="download_option">
@@ -694,6 +827,7 @@ function updateLangButtons() {
 
 let downloadTasks = [];
 let currentFiles = [];
+let selectedFiles = [];
 let selectedQuant = '';
 let selectedMode = 'all';
 let parsedUrl = '';
@@ -803,7 +937,8 @@ function renderTaskList() {
 
     const isRunning = document.getElementById('btn_start').disabled;
     list.innerHTML = downloadTasks.map((task, i) => {
-        const modeText = task.mode === 'main' ? '⭐ ' + translations[currentLang].download_main : (task.quant ? '🔹 ' + task.quant : '📥 ' + translations[currentLang].download_all);
+        const fileCount = task.files ? task.files.length : 0;
+        const modeText = fileCount > 0 ? `📄 已选 ${fileCount} 个文件` : '📥 全部下载';
         const disabledAttr = isRunning ? 'disabled' : '';
         const statusClass = task.status || 'waiting';
         const progress = task.progress || 0;
@@ -852,6 +987,9 @@ function renderTaskList() {
             </div>
         </div>`;
     }).join('');
+
+    // 任务列表变化时调整窗口高度
+    adjustWindowHeight();
 }
 
 function escapeHtml(text) {
@@ -941,12 +1079,12 @@ async function parseUrl() {
     const fileArea = document.getElementById('file_select_area');
     const optArea = document.getElementById('download_option');
     const statusDiv = document.getElementById('parse_status');
-    const quantSelect = document.getElementById('modal_quant');
 
     fileArea.classList.remove('visible');
     optArea.classList.remove('visible');
     statusDiv.classList.remove('visible');
     selectedQuant = '';
+    selectedFiles = [];
     currentFiles = [];
 
     statusDiv.textContent = '正在解析...';
@@ -956,40 +1094,84 @@ async function parseUrl() {
     try {
         const result = await invoke('get_model_files', { url });
         currentFiles = result.files || [];
-        const ggufFiles = currentFiles.filter(f => f.toLowerCase().endsWith('.gguf'));
 
-        if (ggufFiles.length > 0) {
-            isGgufModel = true;
-            statusDiv.textContent = `✅ 找到 ${ggufFiles.length} 个 GGUF 文件`;
-            quantSelect.innerHTML = ggufFiles.map(f => `<option value="${f}">${f}</option>`).join('');
-            const q4kIndex = ggufFiles.findIndex(f => f.includes('Q4_K_M'));
-            selectedQuant = q4kIndex >= 0 ? ggufFiles[q4kIndex] : ggufFiles[0];
-            quantSelect.value = selectedQuant;
-            fileArea.classList.add('visible');
-            optArea.classList.remove('visible');
-            document.getElementById('btn_add_confirm').disabled = false;
-        } else {
-            isGgufModel = false;
-            statusDiv.textContent = `✅ 标准模型，共 ${currentFiles.length} 个文件`;
-            selectedMode = 'all';
-            updateModeButtons();
-            optArea.classList.add('visible');
-            fileArea.classList.remove('visible');
-            document.getElementById('btn_add_confirm').disabled = false;
-        }
+        // 统一显示文件列表复选框
+        renderFileList(currentFiles);
+        fileArea.classList.add('visible');
+        optArea.classList.remove('visible');
+        document.getElementById('btn_add_confirm').disabled = false;
     } catch(e) {
         statusDiv.textContent = '❌ 解析失败: ' + e;
         statusDiv.classList.add('error');
     }
 }
 
+function formatFileSize(bytes) {
+    if (bytes === 0) return '未知大小';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let unitIndex = 0;
+    let size = bytes;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex++;
+    }
+    return size.toFixed(2) + ' ' + units[unitIndex];
+}
+
+function renderFileList(files) {
+    const fileList = document.getElementById('file_list');
+    const fileSummary = document.getElementById('file_summary');
+
+    if (!files || files.length === 0) {
+        fileList.innerHTML = '<div class="file-item">没有找到文件</div>';
+        fileSummary.textContent = '';
+        return;
+    }
+
+    fileList.innerHTML = files.map((f, index) => `
+        <label class="file-item">
+            <input type="checkbox" class="file-checkbox" data-index="${index}" checked onchange="updateSelectedFiles()">
+            <span class="file-item-name">${f.name}</span>
+            <span class="file-item-size">${formatFileSize(f.size)}</span>
+        </label>
+    `).join('');
+
+    // 默认全选
+    selectedFiles = files.map(f => f.name);
+    updateSelectedFiles();
+}
+
+function updateSelectedFiles() {
+    const checkboxes = document.querySelectorAll('.file-checkbox');
+    selectedFiles = [];
+    checkboxes.forEach((cb, index) => {
+        if (cb.checked) {
+            selectedFiles.push(currentFiles[index].name);
+        }
+    });
+    const totalSize = selectedFiles.reduce((sum, fname) => {
+        const f = currentFiles.find(fi => fi.name === fname);
+        return sum + (f ? f.size : 0);
+    }, 0);
+    const fileSummary = document.getElementById('file_summary');
+    fileSummary.innerHTML = `已选择 <span>${selectedFiles.length}</span> / ${currentFiles.length} 个文件，总大小约 <span>${formatFileSize(totalSize)}</span>`;
+}
+
+function selectAllFiles(selectAll) {
+    const checkboxes = document.querySelectorAll('.file-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll;
+    });
+    updateSelectedFiles();
+}
+
 async function addToList() {
     if (!parsedUrl) return alert(translations[currentLang].no_parse);
+    if (selectedFiles.length === 0) return alert('请至少选择一个文件下载');
 
     const task = {
         url: parsedUrl,
-        quant: selectedQuant || null,
-        mode: isGgufModel ? null : selectedMode
+        files: selectedFiles
     };
 
     downloadTasks.push(task);
@@ -1043,8 +1225,9 @@ async function startDownload() {
     const autoShutdown = document.getElementById('auto_shutdown').checked;
 
     const urls = downloadTasks.map(t => {
-        if (t.quant) return `${t.url}::QUANT:${t.quant}`;
-        if (t.mode === 'main') return `${t.url}::MODE:main`;
+        if (t.files && t.files.length > 0) {
+            return `${t.url}::FILES:${t.files.join('|||')}`;
+        }
         return t.url;
     }).join('\n');
 
@@ -1232,6 +1415,32 @@ loadTasks();
 checkLoginStatus();
 applyTranslations();
 updateLangButtons();
+
+// 窗口自适应：根据内容高度调整窗口
+function adjustWindowHeight() {
+    const documentHeight = document.documentElement.scrollHeight;
+    const minHeight = 700;
+    const targetHeight = Math.max(minHeight, documentHeight + 50);
+    if (window.__TAURI__) {
+        try {
+            const currentSize = window.__TAURI__.window.currentMonitor();
+            if (currentSize) {
+                currentSize.then(monitor => {
+                    const maxHeight = monitor.size.height - 100;
+                    const newHeight = Math.min(targetHeight, maxHeight);
+                    window.__TAURI__.window.getCurrentWindow().setSize({
+                        type: 'Logical',
+                        width: 1000,
+                        height: newHeight
+                    });
+                }).catch(() => {});
+            }
+        } catch(e) {}
+    }
+}
+
+// 页面加载后调整窗口高度
+setTimeout(adjustWindowHeight, 500);
 </script>
 
 <div id="qrLoginModal" class="qr-login-modal">
