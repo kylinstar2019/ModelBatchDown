@@ -4,8 +4,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadTask {
     pub url: String,
-    pub quant: Option<String>,
-    pub mode: Option<String>,
+    pub files: Option<Vec<String>>,
 }
 
 pub fn get_tasks_file_path() -> PathBuf {

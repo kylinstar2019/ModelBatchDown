@@ -19,7 +19,6 @@ static BANDWIDTH_CACHE: AtomicU64 = AtomicU64::new(0);
 
 pub struct GlobalDownloadTracker {
     total_downloaded: AtomicU64,
-    total_uploaded: AtomicU64,
     start_time: Mutex<Instant>,
     last_downloaded: AtomicU64,
     instant_speed: AtomicU64,
@@ -29,7 +28,6 @@ impl GlobalDownloadTracker {
     pub fn new() -> Self {
         Self {
             total_downloaded: AtomicU64::new(0),
-            total_uploaded: AtomicU64::new(0),
             start_time: Mutex::new(Instant::now()),
             last_downloaded: AtomicU64::new(0),
             instant_speed: AtomicU64::new(0),
@@ -228,7 +226,12 @@ pub async fn download_model_rust(
 ) -> Result<String, String> {
     let model_id = extract_model_id(url).ok_or("无法解析模型 ID")?;
 
-    let allow_patterns = if let Some(ref quant) = gguf_quant {
+    let allow_patterns = if mode == "files" {
+        // 当mode为"files"时，用户选择了特定文件下载
+        let _ = app_handle.emit("download-log", format!("[DEBUG] 使用用户选择的文件列表"));
+        None // 实际文件列表在download_model_rust_with_files中处理
+    } else if let Some(ref quant) = gguf_quant {
+        // GGUF量化版本选择
         let pattern = quant.clone();
         let _ = app_handle.emit("download-log", format!("[DEBUG] GGUF quant: {}, pattern: {}", quant, pattern));
         Some(vec![pattern])
@@ -245,7 +248,37 @@ pub async fn download_model_rust(
             "processor_config.json".to_string(),
         ])
     } else {
-        None
+        None // 下载全部文件
+    };
+
+    if url.contains("huggingface.co") || url.contains("hf-mirror.com") {
+        huggingface_download(&model_id, save_path, allow_patterns, app_handle).await
+    } else if url.contains("modelscope.cn") {
+        modelscope_download(&model_id, save_path, allow_patterns, app_handle).await
+    } else {
+        Err("不支持的平台".to_string())
+    }
+}
+
+// 新增函数：支持用户选择的文件列表下载
+pub async fn download_model_rust_with_files(
+    url: &str,
+    save_path: &str,
+    selected_files: Option<Vec<String>>,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    let model_id = extract_model_id(url).ok_or("无法解析模型 ID")?;
+
+    // 如果用户选择了文件，使用文件列表作为过滤模式
+    let allow_patterns = if let Some(ref selected) = selected_files {
+        if selected.is_empty() {
+            None // 下载全部
+        } else {
+            let _ = app_handle.emit("download-log", format!("[用户选择] {} 个文件将下载", selected.len()));
+            Some(selected.clone())
+        }
+    } else {
+        None // 下载全部
     };
 
     if url.contains("huggingface.co") || url.contains("hf-mirror.com") {
@@ -566,26 +599,22 @@ pub async fn start_download(
 
         let _ = app.emit("download-log", format!("[任务] {}/{} 处理中...", i + 1, total_tasks));
 
-        let (url, quant, mode) = if let Some(pos) = line.find("::QUANT:") {
+        let (url, selected_files) = if let Some(pos) = line.find("::FILES:") {
             let url = line[..pos].to_string();
-            let quant = line[pos + 8..].to_string();
-            (url, Some(quant), None)
-        } else if let Some(pos) = line.find("::MODE:") {
-            let url = line[..pos].to_string();
-            let mode = line[pos + 7..].to_string();
-            (url, None, Some(mode))
+            let files_str = line[pos + 8..].to_string();
+            let files: Vec<String> = files_str.split("|||").map(|s| s.to_string()).collect();
+            (url, Some(files))
         } else {
-            (line.to_string(), None, Some("all".to_string()))
+            (line.to_string(), None)
         };
 
         let model_name = extract_model_name(&url);
         let task_save_path = std::path::PathBuf::from(&save_root).join(&model_name);
 
-        let result = download_model_rust(
+        let result = download_model_rust_with_files(
             &url,
             task_save_path.to_str().unwrap_or(&save_root),
-            quant.clone(),
-            mode.as_deref().unwrap_or("all"),
+            selected_files,
             app.clone(),
         ).await;
 

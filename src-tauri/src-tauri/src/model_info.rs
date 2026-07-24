@@ -8,9 +8,15 @@ pub struct FileInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelFileInfo {
+    pub name: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelFilesResult {
     pub is_gguf: bool,
-    pub files: Vec<String>,
+    pub files: Vec<ModelFileInfo>,
 }
 
 #[tauri::command]
@@ -19,12 +25,18 @@ pub fn get_model_files(url: String) -> Result<ModelFilesResult, String> {
     let is_gguf = url_lower.contains("gguf");
     let model_id = extract_model_id(&url).ok_or("无法解析模型ID")?;
 
-    let files = if url.contains("huggingface.co") {
+    let files: Vec<ModelFileInfo> = if url.contains("huggingface.co") {
         let hf_files = get_hf_files_with_size(&model_id)?;
-        hf_files.into_iter().map(|f| f.path).collect()
+        hf_files.into_iter().map(|f| ModelFileInfo {
+            name: f.path,
+            size: f.size,
+        }).collect()
     } else if url.contains("modelscope.cn") {
         let ms_files = get_ms_files_with_size(&model_id)?;
-        ms_files.into_iter().map(|f| f.path).collect()
+        ms_files.into_iter().map(|f| ModelFileInfo {
+            name: f.path,
+            size: f.size,
+        }).collect()
     } else {
         return Err("不支持的链接".into());
     };
