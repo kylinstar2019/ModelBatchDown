@@ -1,44 +1,47 @@
-# Build outputs
-dist/
-dist_nuitka/
-build/
-*.egg-info/
+# Rust
+src-tauri/src-tauri/target/
 
-# Compiled executables
-*.exe
-*.dll
-*.so
-*.dylib
+# Node
+src-tauri/node_modules/
 
-# Rust build artifacts
-src-tauri/target/
-
-# Python cache
+# Python
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+dist/
+dist_nuitka/
+build/
+*.spec
+*.dll
 *.pyd
-.PYTHONSTUFF
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 
 # OS
-.DS_Store
 Thumbs.db
+.DS_Store
 
-# Large model files
-*.gguf
-*.safetensors
-*.bin
+# Build temp
+build-temp/
+build-temp2/
+F:\ext-build/
 
-# Logs
-*.log
+# MSIX temp
+MSIX/ModelBatchDown.exe
 
-# Temporary files
-tmp/
-temp/
-*.tmp
+# Portable releases
+ModelBatchDown-Portable/
+
+# Credentials
+.env
+*.pem
+*.key
+
+# Tauri
+src-tauri/src-tauri/icons/
+.exe

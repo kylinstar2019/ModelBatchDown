@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "identifier": "com.modelbatchdown.app",
   "build": {
-    "frontendDist": "app://index.html",
+    "frontendDist": "../src",
     "beforeDevCommand": "",
     "beforeBuildCommand": ""
   },

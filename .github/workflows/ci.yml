@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
+  workflow_dispatch:
 
 jobs:
   build-windows:
@@ -20,14 +21,22 @@ jobs:
         with:
           node-version: 20
 
-      - name: Build Tauri app
-        run: |
-          cd src-tauri
-          npm install
-          npm run build
+      - name: Install Tauri CLI
+        working-directory: src-tauri
+        run: npm install
 
-      - name: Upload Windows artifact
+      - name: Build Tauri app (Windows)
+        working-directory: src-tauri
+        run: npm run build
+
+      - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
         with:
           name: ModelBatchDown-win-x64-installer
           path: src-tauri/src-tauri/target/release/bundle/nsis/*.exe
+
+      - name: Upload portable exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: ModelBatchDown-win-x64-portable
+          path: src-tauri/src-tauri/target/release/modelbatchdown.exe
